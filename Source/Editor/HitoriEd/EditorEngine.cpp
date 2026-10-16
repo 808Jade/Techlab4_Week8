@@ -118,6 +118,8 @@ bool UEditorEngine::Init()
 	DepthViewRenderer = MakeUnique<FDepthViewRenderer>();
 	DepthViewRenderer->Init();
 
+	ShadowRenderer = MakeUnique<FShadowRenderer>();
+	ShadowRenderer->Init();
 
 	// 필요한 Panel들 추가후 raw pointer 반환(소유권 = EditorUI)
 	DetailsPanel = EditorUI->AddEditorPanel<FDetailsPanel>();
@@ -914,14 +916,16 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
-	//RenderSahdowPass();
+
+	ShadowRenderer->OnRender(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
+	// RenderShadowPass(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups()); 이렇게 통일 해야하는거 아님?
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);
 
+	// 2. RenderDepthPass: 깊이 시각화는 표시용 타깃을 통째로 덮어쓰므로 인코딩이 필요 없다
 	if (SettingsPanel->GetSettings().bDepthView)
 	{
-		// 깊이 시각화는 표시용 타깃을 통째로 덮어쓰므로 인코딩이 필요 없다
 		RenderDepthPass(ViewIndex, ViewRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward);
 	}
 	else
@@ -930,23 +934,26 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 		const EViewMode ViewMode = MultipleViewportsAdapter.GetViewRenderMode(ViewIndex).ViewMode;
 		const bool bVisualizeData = IsDataVisualization(ViewMode);
 
-		//직교인 경우 안개 Pass를 그리지 않는다.
+		// 3. 직교인 경우 안개 Pass를 그리지 않는다.
 		if (!MultipleViewportsAdapter.IsOrthographic(ViewIndex) && !bVisualizeData && SettingsPanel->GetSettings().bExponentialHeightFog)
-			// 2. 안개 Pass (Linear 씬 컬러)
+		{
 			RenderFogPass(ViewIndex, ViewWorld, SceneRenderingInfo, ViewCameraLocation, ViewProjection, RenderQueue);
+		}
 
-		// 3. Gamma Encode Pass: Linear 씬 컬러 → (Lit이면 ACES) → 표시용 sRGB
+		// 4. Gamma Encode Pass: Linear 씬 컬러 → (Lit이면 ACES) → 표시용 sRGB
 		const FEditorSettings& Settings = SettingsPanel->GetSettings();
 		const bool bEncode = !bVisualizeData && ColorWorkflow::bLinear;
 		const bool bToneMap = bEncode && Settings.bToneMapping && ViewMode == EViewMode::Lit;
 		RenderGammaEncodePass(SceneRenderingInfo, ViewRenderingInfo, bEncode, bToneMap, Settings.ExposureEV);
 
-		// 4. FXAA Pass: 밝기 계산이 감마 공간을 전제로 하므로 인코딩 뒤에 한다
+		// 5. FXAA Pass: 밝기 계산이 감마 공간을 전제로 하므로 인코딩 뒤에 한다
 		if (!bVisualizeData && SettingsPanel->GetSettings().bEnableFXAA)
+		{
 			RenderFXAAPass(ViewIndex, ViewRenderingInfo);
+		}
 	}
 
-	// 5. 오버레이 Pass: Grid·Gizmo·UUID는 sRGB 색으로 지정되므로 인코딩 뒤 표시용 타깃에 그린다
+	// 6. 오버레이 Pass: Grid·Gizmo·UUID는 sRGB 색으로 지정되므로 인코딩 뒤 표시용 타깃에 그린다
 	RenderOverlayPass(ViewIndex, ViewWorld, ViewRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue);
 }
 
@@ -988,6 +995,21 @@ void UEditorEngine::PresentFrame()
 		ImGuiRenderer->Begin();
 
 		EditorUI->OnRender();
+
+		// @debug
+		if (ShadowRenderer && ShadowRenderer->GetShadowMap())
+		{
+			ImGui::Begin("Shadow Map Debug");
+			ImGui::Text("Resolution: %u x %u", ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution());
+			float OrthoSize = ShadowRenderer->GetOrthoWidth();
+			if (ImGui::SliderFloat("Ortho Size", &OrthoSize, 500.0f, 15000.0f))
+			{
+				ShadowRenderer->SetOrthoWidth(OrthoSize);
+				ShadowRenderer->SetOrthoHeight(OrthoSize);
+			}
+			ImGui::Image((ImTextureID)ShadowRenderer->GetShadowMap()->GetSRV(), ImVec2(512, 512));
+			ImGui::End();
+		}
 
 		ImGuiRenderer->End();
 	}

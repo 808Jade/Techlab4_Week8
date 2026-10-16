@@ -32,6 +32,8 @@
 
 #include "Render/SkyboxRenderer.h"
 
+#include "Render/ShadowRenderer.h"
+
 #include "PlayInEditorDataTypes.h"
 #include "Core/Misc/Optional.h"
 
@@ -146,6 +148,7 @@ private:
 	TUniquePtr<FFXAARenderer> FXAARenderer;
 	TUniquePtr<FGammaEncodeRenderer> GammaEncodeRenderer;
 	TUniquePtr<FDepthViewRenderer> DepthViewRenderer;
+	TUniquePtr<FShadowRenderer> ShadowRenderer;
 
 	UFont* SystemFont;
 
