@@ -8,6 +8,13 @@
 #include "LightInfo.h"
 #include "Renderer.h"
 
+struct FShadowConstants
+{
+	FMatrix LightViewProjection;
+	float ShadowBias;
+	FVector ShadowPadding;
+};
+
 class FShadowRenderer
 {
 public:
@@ -19,7 +26,10 @@ public:
 
 	bool Init(uint32 InResolution = 2048);
 	void OnRender(const FDirectionalLightInfo& DirectionalLight, const FVector& FocusPosition,
-		const FRenderQueue& RenderQueue, const std::vector<const FStaticDrawGroup*>& StaticGroups);
+		const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
+
+	void BindForShading();
+	void UnbindForShading();
 
 	FTexture2D* GetShadowMap() const { return ShadowMap.get(); }
 	const FMatrix& GetLightViewProjection() const { return LightViewProjection; }
@@ -41,9 +51,11 @@ public:
 private:
 	void UpdateLightMatrix(const FVector& LightDirection, const FVector& FocusPosition);
 
+	FPipelineState PipelineState;
+
 	uint32 Resolution = 2048;
 
-	// @todo : Light∑Œ∫Œ≈Õ ∞°¡Æø¿µµ∑œ ∫Ø∞Ê«ÿæﬂ«‘
+	// @todo : LightÎ°úÎ∂ÄÌÑ∞ Í∞ÄÏ†∏Ïò§ÎèÑÎ°ù Î≥ÄÍ≤ΩÌï¥ÏïºÌï®
 	float OrthoWidth = 4000.0f;
 	float OrthoHeight = 4000.0f;
 	float NearClip = 10.0f;
@@ -62,4 +74,5 @@ private:
 	FShaderProgram* ShadowShader = nullptr;
 	TUniquePtr<FConstantBuffer> ShadowViewCB;
 	TUniquePtr<FConstantBuffer> PerObjectCB;
+	TUniquePtr<FConstantBuffer> ShadowConstantsCB;
 };

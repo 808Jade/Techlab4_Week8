@@ -160,13 +160,13 @@ void FRenderer::RenderTranslucent(const FMatrix& ViewProjection)
 	DrawPackets(FirstTranslucentIndex, SortEntries.Num(), ViewProjection);
 	RenderPackets.Reset();
 	FirstTranslucentIndex = 0;
-	StaticGroups.clear();   // 묶음 메모리는 World 것이므로 이번 프레임이 끝나면 놓는다
+	StaticGroups.Empty();   // 묶음 메모리는 World 것이므로 이번 프레임이 끝나면 놓는다
 }
 
 // 스태틱 메시 묶음을 정렬 키 순서로 그린다. 바인딩은 묶음마다 한 번, 항목마다는 칸 바인딩과 드로우만 한다.
 void FRenderer::DrawStaticGroups()
 {
-	if (StaticGroups.empty())
+	if (StaticGroups.IsEmpty())
 		return;
 
 	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
@@ -239,7 +239,13 @@ void FRenderer::RenderQueueSorting(FRenderQueue& InQueue, const FMatrix& ViewPro
 			++FirstTranslucentIndex;
 
 		// ④ 스태틱 메시 묶음: 빈 묶음을 빼고 키 순으로 정렬한다. 조각마다 같은 키 묶음이 있으므로 정렬하면 서로 붙는다.
-		std::erase_if(StaticGroups, [](const FStaticDrawGroup* Group) { return Group->Items.empty(); });
+		for (int32 i = StaticGroups.Num() - 1; i >= 0; --i)
+		{
+			if (StaticGroups[i]->Items.empty())
+			{
+				StaticGroups.RemoveAt(i);
+			}
+		}
 		std::sort(StaticGroups.begin(), StaticGroups.end(),
 			[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return MakeGroupKey(*A) < MakeGroupKey(*B); });
 	}

@@ -117,8 +117,8 @@ private:
 	void RenderFXAAPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo);
 	//Depth Pass
 	void RenderDepthPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo, const FMatrix& ViewProjection, const FVector& ViewCameraLocation, const FVector& ViewCameraForward);
-
-
+	//Shadow Pass
+	void RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
 
 	FWorldContext& GetEditorWorldContext();
 	FWorldContext* GetPIEWorldContext(int32 WorldPIEInstance = 0);

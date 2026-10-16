@@ -143,6 +143,13 @@ cbuffer TileLightConstants : register(b4)
     uint3 TileCullingPadding;
 };
 
+cbuffer ShadowConstants : register(b5)
+{
+    matrix LightViewProjection;
+    float ShadowBias;
+    float3 ShadowPadding;
+};
+
 StructuredBuffer<FPointLightInfo> StructuredPointLights : register(t8);
 StructuredBuffer<FSpotLightInfo> StructuredSpotLights : register(t9);
 StructuredBuffer<uint> PointTileList : register(t10);
@@ -153,8 +160,10 @@ Texture2D AlbedoTexture : register(t0);
 #if USE_NORMAL_MAP
 Texture2D NormalTexture : register(t1);
 #endif
+Texture2D ShadowMap : register(t2);
 
 SamplerState AlbedoSampler : register(s0);
+SamplerComparisonState ShadowSampler : register(s1);
 
 float3 DiffuseTerm(float3 Il, float3 N, float3 L)
 {
@@ -263,6 +272,27 @@ void ComputeLighting(float3 N, float3 WorldPosition, float3 V, float n, out floa
     }
 }
 
+float CalculateShadow(float3 WorldPosition, float3 N, float3 L)
+{
+    // World -> Light Space(Clip)
+    float4 LightPos = mul(float4(WorldPosition, 1.0f), LightViewProjection);
+    float3 ProjCoords = LightPos.xyz / LightPos.w;
+    
+    float2 ShadowUV = float2(ProjCoords.x * 0.5f + 0.5f, -ProjCoords.y * 0.5f + 0.5f);
+    
+    if (ShadowUV.x < 0.0f || ShadowUV.x > 1.0f ||
+        ShadowUV.y < 0.0f || ShadowUV.y > 1.0f ||
+        ProjCoords.z < 0.0f || ProjCoords.z > 1.0f)
+    {
+        return 1.0f;
+    }
+    
+    float NdotL = saturate(dot(N, L));
+    float Bias = max(ShadowBias * (1.0f - NdotL), ShadowBias * 0.2f);
+    float CurrentDepth = ProjCoords.z - Bias;
+    
+    return ShadowMap.SampleCmpLevelZero(ShadowSampler, ShadowUV, CurrentDepth);
+}
 
 void ComputeTiledLighting(float3 N,
 #if USE_NORMAL_MAP
@@ -282,7 +312,8 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
 #else
         float GeoFactor = 1.0f;
 #endif
-        AccumulateLight(Il * GeoFactor, N, L, V, n, DiffuseLight, SpecularLight);
+        float ShadowFactor = CalculateShadow(WorldPosition, N, L);
+        AccumulateLight(Il * GeoFactor * ShadowFactor, N, L, V, n, DiffuseLight, SpecularLight);
     }
 
     uint2 TileCoord = min(uint2(PixelPosition) / 16u, uint2(TileCountX - 1u, TileCountY - 1u));

@@ -853,6 +853,11 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
+void UEditorEngine::RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups)
+{
+	ShadowRenderer->OnRender(DirectionalLight, ViewCameraLocation, RenderQueue, StaticGroups);
+}
+
 // 입력 View의 Ray와 피킹으로 Gizmo·공유 선택을 갱신한다.
 void UEditorEngine::UpdateGizmoAndPicking()
 {
@@ -917,8 +922,7 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
 
-	ShadowRenderer->OnRender(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
-	// RenderShadowPass(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups()); 이렇게 통일 해야하는거 아님?
+	RenderShadowPass(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);

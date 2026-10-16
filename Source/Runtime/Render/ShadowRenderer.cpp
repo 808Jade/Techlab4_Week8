@@ -49,8 +49,15 @@ bool FShadowRenderer::Init(uint32 InResolution)
 		return false;
 	}
 
+	PipelineState.Shader = ShadowShader;
+	PipelineState.RasterizerState = ERasterizerState::SolidFront;
+	PipelineState.BlendState = EBlendState::NoColorWrite;
+	PipelineState.DepthStencilState = EDepthStencilState::Default;
+	PipelineState.Topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
 	ShadowViewCB = RenderCommand::CreateConstantBuffer(sizeof(FViewConstants));
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
+	ShadowConstantsCB = RenderCommand::CreateConstantBuffer(sizeof(FShadowConstants));
 
 	return true;
 }
@@ -103,13 +110,10 @@ void FShadowRenderer::OnRender(
 	const FDirectionalLightInfo& DirectionalLight,
 	const FVector& FocusPosition,
 	const FRenderQueue& RenderQueue,
-	const std::vector<const FStaticDrawGroup*>& StaticGroups)
+	const TArray<const FStaticDrawGroup*>& StaticGroups)
 {
-	if (!ShadowMap || !ShadowShader)
-		return;
-
-	if (DirectionalLight.Direction.SizeSquared() < 0.0001f)
-		return;
+	if (!ShadowMap || !ShadowShader) return;
+	UnbindForShading();
 
 	UpdateLightMatrix(DirectionalLight.Direction, FocusPosition);
 
@@ -119,12 +123,7 @@ void FShadowRenderer::OnRender(
 	RenderCommand::UpdateBufferData(ShadowViewCB.get(), &ViewConstants);
 
 	RenderCommand::BeginRenderPass(ShadowPassInfo);
-
-	RenderCommand::BindShaderProgram(ShadowShader);
-	RenderCommand::SetRasterizerState(ERasterizerState::SolidFront); // 뒷면만 깊이 맵에 그려 Shadow Acne 방지
-	RenderCommand::SetBlendState(EBlendState::NoColorWrite);
-	RenderCommand::SetDepthStencilState(EDepthStencilState::Default);
-	RenderCommand::SetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	RenderCommand::BindPipelineState(PipelineState);
 
 	RenderCommand::BindConstantBuffer(0, ShadowViewCB.get(), EShaderBindFlagBits::Vertex);
 	RenderCommand::BindConstantBuffer(2, PerObjectCB.get(), EShaderBindFlagBits::Vertex);
@@ -177,6 +176,30 @@ void FShadowRenderer::OnRender(
 	}
 
 	RenderCommand::EndRenderPass(ShadowPassInfo);
-
 	RenderCommand::SetRasterizerState(ERasterizerState::SolidBack);
+	BindForShading();
+}
+
+void FShadowRenderer::BindForShading()
+{
+	if (!ShadowMap || !ShadowConstantsCB) return;
+
+	// 상수 버퍼(b5)
+	FShadowConstants Constants;
+	Constants.LightViewProjection = LightViewProjection;
+	Constants.ShadowBias = ShadowBias;
+	Constants.ShadowPadding = FVector::ZeroVector;
+	RenderCommand::UpdateBufferData(ShadowConstantsCB.get(), &Constants);
+	RenderCommand::BindConstantBuffer(5, ShadowConstantsCB.get(), EShaderBindFlagBits::Pixel);
+
+	// 그림자 맵 SRV(t2)
+	RenderCommand::BindShaderResource(2, ShadowMap.get(), EShaderBindFlagBits::Pixel);
+
+	// 그림자 비교 샘플러(s1)
+	RenderCommand::BindSamplerState(1, ESamplerState::ShadowMap, EShaderBindFlagBits::Pixel);
+}
+
+void FShadowRenderer::UnbindForShading()
+{
+	RenderCommand::UnbindShaderResource(2, EShaderBindFlagBits::Pixel);
 }
