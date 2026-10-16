@@ -86,6 +86,7 @@ public:
 	// 묶음 메모리는 World 소유이며 다음 Gather 전까지 유효하다. RenderQueueSorting이 묶음을 정렬하고 RenderOpaque가 그린다.
 	void ResetStaticDrawGroups() { StaticGroups.clear(); }
 	void AddStaticDrawGroup(const FStaticDrawGroup* Group) { StaticGroups.push_back(Group); }
+	const std::vector<const FStaticDrawGroup*>& GetStaticDrawGroups() const { return StaticGroups; }
 
 	// RenderOpaque가 보관한 반투명 패킷을 먼 것부터 그린다.
 	void RenderTranslucent(const FMatrix& ViewProjection);

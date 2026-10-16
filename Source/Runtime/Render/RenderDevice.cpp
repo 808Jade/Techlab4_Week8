@@ -275,13 +275,28 @@ void FRenderDevice::CreateStates()
 		Desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 		Desc.MinLOD = 0.0f;
 		Desc.MaxLOD = D3D11_FLOAT32_MAX;
-
 		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::LinearClamp].GetAddressOf());
 
 		Desc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
 		Desc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 		Desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-
 		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::LinearWrap].GetAddressOf());
+
+		Desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+		Desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		Desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		Desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::PointClamp].GetAddressOf());
+
+		Desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+		Desc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.BorderColor[0] = 1.0f;
+		Desc.BorderColor[1] = 1.0f;
+		Desc.BorderColor[2] = 1.0f;
+		Desc.BorderColor[3] = 1.0f;
+		Desc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::ShadowMap].GetAddressOf());
 	}
 }

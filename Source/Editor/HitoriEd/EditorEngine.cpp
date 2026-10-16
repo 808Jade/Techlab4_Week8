@@ -914,6 +914,8 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
+	//RenderSahdowPass();
+
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);
 
