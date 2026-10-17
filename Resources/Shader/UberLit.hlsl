@@ -45,8 +45,9 @@ struct FAmbientLightInfo
 
 struct FDirectionalLightInfo
 {
+    matrix ShadowVP;
     float3 Color;
-    float Padding0;
+    float ShadowDistance;
     float3 Direction;
     float Padding1;
 };

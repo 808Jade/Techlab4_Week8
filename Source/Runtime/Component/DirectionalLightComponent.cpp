@@ -8,6 +8,7 @@ FDirectionalLightInfo UDirectionalLightComponent::GetDirectionalLightInfo() cons
 	FDirectionalLightInfo Info;
 	Info.Color = GetShaderColorWithIntensity();
 	Info.Direction = GetLightDirection();
+    Info.ShadowDistance = ShadowDistance;
 	return Info;
 }
 

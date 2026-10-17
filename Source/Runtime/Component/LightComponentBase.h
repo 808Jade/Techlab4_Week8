@@ -14,6 +14,10 @@ class ULightComponentBase : public USceneComponent
 		PROPERTY(LightColor)
 		PROPERTY(Intensity)
 		PROPERTY(bVisible)
+		PROPERTY(ShadowResolutionScale)
+		PROPERTY(ShadowBias)
+		PROPERTY(ShadowSlopeBias)
+		PROPERTY(ShadowSharpen)
 	REFLECT_END()
 
 public:
@@ -47,6 +51,13 @@ protected:
 	FColor LightColor = FColor(255, 255, 255);
 	float Intensity = 1.0f;
 	bool bVisible = true;
+
+
+	// shadow
+	float ShadowResolutionScale = 1.0f;
+	float ShadowBias = 0.005f;
+	float ShadowSlopeBias = 1.0f;
+	float ShadowSharpen = 0.0f;
 
 private:
 	friend class FScene;

@@ -8,6 +8,7 @@ class UDirectionalLightComponent : public ULightComponent
 {
 	DECLARE_CLASS(UDirectionalLightComponent, ULightComponent)
 	REFLECT_START(UDirectionalLightComponent)
+		PROPERTY(ShadowDistance)
 		REFLECT_END()
 
 public:
@@ -20,4 +21,6 @@ public:
 	void DrawDebug(FLineBatcher* LineBatcher) const;
 
 private:
+
+	float ShadowDistance = 3000.f;	// 그림자를 그릴 반경
 };

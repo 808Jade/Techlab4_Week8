@@ -15,8 +15,9 @@ struct FAmbientLightInfo
 
 struct FDirectionalLightInfo
 {
+	FMatrix ShadowVP;
 	FVector Color;
-	float Padding0 = 0.0f;
+	float ShadowDistance;
 	FVector Direction;
 	float Padding1 = 0.0f;
 };
@@ -51,7 +52,7 @@ struct FLightingConstants
 };
 
 static_assert(sizeof(FAmbientLightInfo) == 16);
-static_assert(sizeof(FDirectionalLightInfo) == 32);
+static_assert(sizeof(FDirectionalLightInfo) == 96);
 static_assert(sizeof(FPointLightInfo) == 32);
 static_assert(sizeof(FSpotLightInfo) == 48);
-static_assert(sizeof(FLightingConstants) == 384);
+static_assert(sizeof(FLightingConstants) == 448);
