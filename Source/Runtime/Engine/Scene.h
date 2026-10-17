@@ -8,6 +8,7 @@
 #include "Render/FogInfo.h"
 #include "Render/LightInfo.h"
 #include "Render/Renderer.h"
+#include "LightSceneProxy.h"
 
 class FLightSceneProxy;
 class ULightComponentBase;
@@ -46,6 +47,9 @@ public:
 	void MarkRenderStateDirty(FPrimitiveSceneProxy* Proxy);
 
 	void BuildStructuredLight(TArray<FPointLightInfo>& OutPointLight, TArray<FSpotLightInfo>& OutSpotLight) const;
+	void BuildDirectionalShadowSettings(FDirectionalShadowSettings& Out) const;
+
+	const FDirectionalLightSceneProxy* GetDirectionalLightProxy() const;
 
 	TArray<FPrimitiveSceneProxy*> Proxies;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;

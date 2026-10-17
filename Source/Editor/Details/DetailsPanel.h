@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 
 struct FTransform;
+class FShadowRenderer;
+class UDirectionalLightComponent;
 
 using DetailsSelectionCallback = std::function<void(UActorComponent*)>;
 using DetailsDeleteComponentCallback = std::function<void(UActorComponent*)>;
@@ -36,10 +38,12 @@ public:
 	void SetDeleteComponentCallback(DetailsDeleteComponentCallback InCallback) { DeleteCallback = InCallback; }
 
 	void SetWorld(UWorld* InWorld) { World = InWorld; }
+	void SetShadowRenderer(FShadowRenderer* InRenderer) { ShadowRenderer = InRenderer; }
 
 	ImFont* GetCustomFont() { return CustomFont; }
 
 private:
+	void DrawShadowMapPreview(UDirectionalLightComponent* DirLight);
 	void DrawSceneComponentNode(USceneComponent* Component, USceneComponent* Root, UActorComponent*& OutSelectedComponent);
 	void TryReparent(USceneComponent* DroppedComponent, USceneComponent* DragComponent);
 
@@ -59,5 +63,7 @@ private:
 
 	USceneComponent* PendingDroppedComponent = nullptr;
 	USceneComponent* PendingDragComponent = nullptr;
+
+	FShadowRenderer* ShadowRenderer = nullptr;
 };
 

@@ -63,12 +63,22 @@ public:
 		const UDirectionalLightComponent* Light = static_cast<const UDirectionalLightComponent*>(Component);
 		Info = Light->GetDirectionalLightInfo();
 		bVisible = Light->IsLightVisible();
+
+		bCastShadows = Light->GetCastShadows();
+		ShadowBias = Light->GetShadowBias();
+		ShadowOrthoSize = Light->GetShadowOrthoSize();
 	}
 
 	const FDirectionalLightInfo& GetInfo() const { return Info; }
+	bool GetCastShadows() const { return bCastShadows; }
+	float GetShadowBias() const { return ShadowBias; }
+	float GetShadowOrthoSize() const { return ShadowOrthoSize; }
 
 private:
 	FDirectionalLightInfo Info;
+	bool bCastShadows = true;
+	float ShadowBias = 0.001f;
+	float ShadowOrthoSize = 4000.0f;
 };
 
 class FPointLightSceneProxy final : public FLightSceneProxy

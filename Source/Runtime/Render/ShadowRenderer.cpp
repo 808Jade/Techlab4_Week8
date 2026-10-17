@@ -108,12 +108,21 @@ void FShadowRenderer::UpdateLightMatrix(const FVector& LightDirection, const FVe
 
 void FShadowRenderer::OnRender(
 	const FDirectionalLightInfo& DirectionalLight,
+	const FDirectionalShadowSettings& ShadowSettings,
 	const FVector& FocusPosition,
 	const FRenderQueue& RenderQueue,
 	const TArray<const FStaticDrawGroup*>& StaticGroups)
 {
 	if (!ShadowMap || !ShadowShader) return;
-	UnbindForShading();
+
+	ShadowBias = ShadowSettings.ShadowBias;
+	OrthoWidth = ShadowSettings.ShadowOrthoSize;
+	OrthoHeight = ShadowSettings.ShadowOrthoSize;
+
+	if (!ShadowSettings.bCastShadow)
+	{
+		return;
+	}
 
 	UpdateLightMatrix(DirectionalLight.Direction, FocusPosition);
 
@@ -122,7 +131,6 @@ void FShadowRenderer::OnRender(
 	ViewConstants.CameraPosition = LightPosition;
 	RenderCommand::UpdateBufferData(ShadowViewCB.get(), &ViewConstants);
 
-	RenderCommand::BeginRenderPass(ShadowPassInfo);
 	RenderCommand::BindPipelineState(PipelineState);
 
 	RenderCommand::BindConstantBuffer(0, ShadowViewCB.get(), EShaderBindFlagBits::Vertex);
@@ -175,9 +183,7 @@ void FShadowRenderer::OnRender(
 		RenderCommand::DrawIndexed(IndexCount, Packet.StartIndex);
 	}
 
-	RenderCommand::EndRenderPass(ShadowPassInfo);
 	RenderCommand::SetRasterizerState(ERasterizerState::SolidBack);
-	BindForShading();
 }
 
 void FShadowRenderer::BindForShading()

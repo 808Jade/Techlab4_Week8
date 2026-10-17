@@ -25,8 +25,8 @@ public:
 	FShadowRenderer& operator=(const FShadowRenderer&) = delete;
 
 	bool Init(uint32 InResolution = 2048);
-	void OnRender(const FDirectionalLightInfo& DirectionalLight, const FVector& FocusPosition,
-		const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
+	void OnRender(const FDirectionalLightInfo& DirectionalLight, const FDirectionalShadowSettings& ShadowSettings,
+		const FVector& FocusPosition, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
 
 	void BindForShading();
 	void UnbindForShading();
@@ -47,6 +47,8 @@ public:
 	void SetOrthoHeight(float InHeight) { OrthoHeight = InHeight; }
 
 	uint32 GetResolution() const { return Resolution; }
+
+	FRenderingInfo GetShadowPassInfo() const { return ShadowPassInfo; }
 
 private:
 	void UpdateLightMatrix(const FVector& LightDirection, const FVector& FocusPosition);

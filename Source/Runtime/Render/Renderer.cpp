@@ -479,14 +479,12 @@ void FRenderer::SetViewMode(const FViewRenderMode& Mode)
 	ViewModeNormalShader = FRenderResourceManager::GetUberLitProgram(Mode, true);
 }
 
-void FRenderer::SetLighting(const FLightingConstants& GlobalLights,
-	const TArray<FPointLightInfo>& PointLights, const TArray<FSpotLightInfo>& SpotLights)
+void FRenderer::SetLighting(const FLightingConstants& GlobalLights,	const TArray<FPointLightInfo>& PointLights, const TArray<FSpotLightInfo>& SpotLights)
 {
 	// 이전 View의 PS SRV 바인딩을 끊은 뒤 동적 LocalLight 버퍼를 다시 쓴다.
 	TileLightCulling.UnbindForShading();
 	RenderCommand::UpdateBufferData(LightingCB.get(), &GlobalLights);
 	LocalLight.UploadLights(PointLights, SpotLights);
-
 }
 
 // Material마다 Shader/Texture/Sampler/State 꽂기

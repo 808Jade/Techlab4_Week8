@@ -314,3 +314,31 @@ void FScene::BuildStructuredLight(TArray<FPointLightInfo>& OutPointLight, TArray
 	}
 
 }
+
+const FDirectionalLightSceneProxy* FScene::GetDirectionalLightProxy() const
+{
+	for (const FLightSceneProxy* Proxy : Lights)
+	{
+		if (Proxy && Proxy->GetLightType() == ELightType::Directional && Proxy->IsVisible())
+		{
+			return static_cast<const FDirectionalLightSceneProxy*>(Proxy);
+		}
+	}
+	return nullptr;
+}
+
+void FScene::BuildDirectionalShadowSettings(FDirectionalShadowSettings& Out) const
+{
+	Out = FDirectionalShadowSettings{};
+	for (const FLightSceneProxy* Proxy : Lights)
+	{
+		if (Proxy && Proxy->GetLightType() == ELightType::Directional && Proxy->IsVisible())
+		{
+			const auto* DirProxy = static_cast<const FDirectionalLightSceneProxy*>(Proxy);
+			Out.bCastShadow = DirProxy->GetCastShadows();
+			Out.ShadowBias = DirProxy->GetShadowBias();
+			Out.ShadowOrthoSize = DirProxy->GetShadowOrthoSize();
+			return;
+		}
+	}
+}

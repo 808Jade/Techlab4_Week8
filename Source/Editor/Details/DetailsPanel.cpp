@@ -10,6 +10,8 @@
 #include "Component/ParticleSubUVComponent.h"
 #include "Component/RotatingMovementComponent.h"
 #include "Component/ProjectileMovementComponent.h"
+#include "Component/DirectionalLightComponent.h"
+#include "Render/ShadowRenderer.h"
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
 #include "Render/Texture2D.h"
@@ -1005,6 +1007,10 @@ void FDetailsPanel::OnRender()
 			{
 				DrawMaterialSlots(MeshComponent);
 			}
+			else if (UDirectionalLightComponent* DirLight = Cast<UDirectionalLightComponent>(TargetComponent))
+			{
+				DrawShadowMapPreview(DirLight);
+			}
 			ImGui::PopID();
 
 			if (PendingDeleteComponent)
@@ -1021,6 +1027,40 @@ void FDetailsPanel::OnRender()
 	ImGui::End();
 }
 
+void FDetailsPanel::DrawShadowMapPreview(UDirectionalLightComponent* DirLight)
+{
+	if (!DirLight || !ShadowRenderer || !ShadowRenderer->GetShadowMap())
+	{
+		return;
+	}
+
+	ImGui::Spacing();
+	ImGui::SeparatorText("Shadow Map Preview");
+
+	ImGui::Text("Resolution: %u x %u", ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution());
+
+	if (!DirLight->GetCastShadows())
+	{
+		ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(Shadows Disabled)");
+	}
+
+	const float AvailWidth = ImGui::GetContentRegionAvail().x;
+	const float ImageSize = FMath::Clamp(AvailWidth - 10.0f, 64.0f, 320.0f);
+
+	if (ShadowRenderer->GetShadowMap()->GetSRV())
+	{
+		ImGui::Image(
+			(ImTextureID)ShadowRenderer->GetShadowMap()->GetSRV(),
+			ImVec2(ImageSize, ImageSize)
+		);
+
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Directional Light Shadow Depth Map\nResolution: %u x %u\nOrtho Size: %.1f",
+				ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution(), DirLight->GetShadowOrthoSize());
+		}
+	}
+}
 
 void FDetailsPanel::SelectComponent(UActorComponent* Component)
 {

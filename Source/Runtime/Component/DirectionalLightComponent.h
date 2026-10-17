@@ -8,7 +8,10 @@ class UDirectionalLightComponent : public ULightComponent
 {
 	DECLARE_CLASS(UDirectionalLightComponent, ULightComponent)
 	REFLECT_START(UDirectionalLightComponent)
-		REFLECT_END()
+		PROPERTY(bCastShadows)
+		PROPERTY(ShadowBias)
+		PROPERTY(ShadowOrthoSize)
+	REFLECT_END()
 
 public:
 	UDirectionalLightComponent() = default;
@@ -19,5 +22,17 @@ public:
 
 	void DrawDebug(FLineBatcher* LineBatcher) const;
 
+	bool GetCastShadows() const { return bCastShadows; }
+	void SetCastShadows(bool bInCast) { bCastShadows = bInCast; MarkSceneProxyDirty(); }
+
+	float GetShadowBias() const { return ShadowBias; }
+	void SetShadowBias(float InBias) { ShadowBias = InBias; MarkSceneProxyDirty(); }
+
+	float GetShadowOrthoSize() const { return ShadowOrthoSize; }
+	void SetShadowOrthoSize(float InSize) { ShadowOrthoSize = InSize; MarkSceneProxyDirty(); }
+
 private:
+	bool bCastShadows = true;
+	float ShadowBias = 0.001f;
+	float ShadowOrthoSize = 4000.0f;
 };

@@ -21,6 +21,13 @@ struct FDirectionalLightInfo
 	float Padding1 = 0.0f;
 };
 
+struct FDirectionalShadowSettings
+{
+	bool bCastShadow = true;
+	float ShadowBias = 0.001f;
+	float ShadowOrthoSize = 4000.0f;
+};
+
 struct FPointLightInfo
 {
 	FVector Color;

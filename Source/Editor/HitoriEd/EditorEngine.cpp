@@ -219,6 +219,7 @@ bool UEditorEngine::Init()
 	LineBatcher->Init(Renderer, GetActiveWorld());
 
 	DetailsPanel->SetWorld(GetActiveWorld());
+	DetailsPanel->SetShadowRenderer(ShadowRenderer.get());
 
 	EditorControlsPanel->SetWorld(GetActiveWorld());
 	EditorControlsPanel->SetIsPlayingQuery([this]() { return IsPlaying(); });
@@ -853,9 +854,19 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
-void UEditorEngine::RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups)
+void UEditorEngine::RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FDirectionalShadowSettings& ShadowSettings, const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups)
 {
-	ShadowRenderer->OnRender(DirectionalLight, ViewCameraLocation, RenderQueue, StaticGroups);
+	if (!ShadowRenderer) return;
+
+	ShadowRenderer->UnbindForShading();
+
+	FRenderingInfo PassInfo = ShadowRenderer->GetShadowPassInfo();
+	RenderCommand::BeginRenderPass(PassInfo);
+	ShadowRenderer->OnRender(DirectionalLight, ShadowSettings, ViewCameraLocation, RenderQueue, StaticGroups);
+	RenderCommand::EndRenderPass(PassInfo);
+
+	// Opaque 패스에서 읽을 수 있게 바인딩 (t2, s1, b5)
+	ShadowRenderer->BindForShading();
 }
 
 // 입력 View의 Ray와 피킹으로 Gizmo·공유 선택을 갱신한다.
@@ -916,13 +927,15 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	FLightingConstants Lighting;
 	TArray<FPointLightInfo> PointLights;
 	TArray<FSpotLightInfo> SpotLights;
+	FDirectionalShadowSettings ShadowSettings;
 
 	ViewWorld.GetScene().BuildLightingConstants(Lighting);
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
+	ViewWorld.GetScene().BuildDirectionalShadowSettings(ShadowSettings);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
-
-	RenderShadowPass(Lighting.Directional, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
+	// 0. Shadow Pass: 그림자 맵은 씬 컬러를 그리기 전에 그려야 한다.
+	RenderShadowPass(Lighting.Directional, ShadowSettings, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);
@@ -999,21 +1012,6 @@ void UEditorEngine::PresentFrame()
 		ImGuiRenderer->Begin();
 
 		EditorUI->OnRender();
-
-		// @debug
-		if (ShadowRenderer && ShadowRenderer->GetShadowMap())
-		{
-			ImGui::Begin("Shadow Map Debug");
-			ImGui::Text("Resolution: %u x %u", ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution());
-			float OrthoSize = ShadowRenderer->GetOrthoWidth();
-			if (ImGui::SliderFloat("Ortho Size", &OrthoSize, 500.0f, 15000.0f))
-			{
-				ShadowRenderer->SetOrthoWidth(OrthoSize);
-				ShadowRenderer->SetOrthoHeight(OrthoSize);
-			}
-			ImGui::Image((ImTextureID)ShadowRenderer->GetShadowMap()->GetSRV(), ImVec2(512, 512));
-			ImGui::End();
-		}
 
 		ImGuiRenderer->End();
 	}
