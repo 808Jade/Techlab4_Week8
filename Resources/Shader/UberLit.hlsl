@@ -157,6 +157,30 @@ Texture2D NormalTexture : register(t1);
 
 SamplerState AlbedoSampler : register(s0);
 
+Texture2D ShadowMap : register(t12);
+SamplerComparisonState ShadowSampler : register(s1);
+
+float ComputeDirectionalShadow(float3 WorldPosition)
+{
+    if (DirectionalLight.ShadowDistance <= 0.0f)
+    {
+        return 1.0f;
+    }
+    
+    float4 ShadowPos = mul(float4(WorldPosition, 1.0f), DirectionalLight.ShadowVP);
+    ShadowPos.xyz /= ShadowPos.w;
+    
+    if (ShadowPos.z > 1.0f)
+    {
+        return 1.0f;
+    }
+    
+    float2 UV = ShadowPos.xy * float2(0.5f, -0.5f) + 0.5f;
+    
+    const float Bias = 0.003f;
+    return ShadowMap.SampleCmpLevelZero(ShadowSampler, UV, ShadowPos.z - Bias);
+}
+
 float3 DiffuseTerm(float3 Il, float3 N, float3 L)
 {
     return Il * max(dot(N, L), 0.0f);
@@ -283,7 +307,8 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
 #else
         float GeoFactor = 1.0f;
 #endif
-        AccumulateLight(Il * GeoFactor, N, L, V, n, DiffuseLight, SpecularLight);
+        float Shadow = ComputeDirectionalShadow(WorldPosition);
+        AccumulateLight(Il * GeoFactor * Shadow, N, L, V, n, DiffuseLight, SpecularLight);
     }
 
     uint2 TileCoord = min(uint2(PixelPosition) / 16u, uint2(TileCountX - 1u, TileCountY - 1u));

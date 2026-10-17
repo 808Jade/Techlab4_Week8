@@ -22,5 +22,5 @@ public:
 
 private:
 
-	float ShadowDistance = 3000.f;	// 그림자를 그릴 반경
+	float ShadowDistance = 7.0f;	// 그림자를 그릴 반경
 };

@@ -103,6 +103,8 @@ public:
 
 	void EnsureTileLightCapacity(const FMatrix& ViewProjection, uint32 Width, uint32 Height, bool bVisualizeLightCount);
 
+	void DrawDepthOnly(const FMatrix& ShadowVP);
+
 private:
 	// FIFO 소비용 배열의 용량만 재사용하며 매 View의 패킷 값은 새로 채운다.
 	FRenderQueue RenderPackets;
@@ -112,6 +114,7 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> ViewCB;
 	TUniquePtr<FConstantBuffer> LightingCB;
+	TUniquePtr<FConstantBuffer> DepthViewCB;
 
 	// 모든 패킷의 World 행렬을 256바이트 칸에 한 번에 올린 버퍼. D3D11.1 오프셋 바인딩을 못 쓰면 PerObjectCB로 돌아간다.
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;

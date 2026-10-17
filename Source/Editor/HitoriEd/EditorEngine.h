@@ -39,6 +39,8 @@
 #include "Text/Font.h"
 #include "Text/TextRenderer.h"
 
+#include "Render/ShadowRenderer.h"
+
 class UEditorEngine : public UEngine
 {
 	DECLARE_CLASS(UEditorEngine, UEngine)
@@ -146,6 +148,7 @@ private:
 	TUniquePtr<FFXAARenderer> FXAARenderer;
 	TUniquePtr<FGammaEncodeRenderer> GammaEncodeRenderer;
 	TUniquePtr<FDepthViewRenderer> DepthViewRenderer;
+	TUniquePtr<FShadowRenderer> ShadowRenderer;
 
 	UFont* SystemFont;
 

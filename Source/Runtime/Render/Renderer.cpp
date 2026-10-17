@@ -70,8 +70,10 @@ bool FRenderer::Init()
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
 	ViewCB = RenderCommand::CreateConstantBuffer(sizeof(FViewConstants));
 	LightingCB = RenderCommand::CreateConstantBuffer(sizeof(FLightingConstants));
+	DepthViewCB = RenderCommand::CreateConstantBuffer(sizeof(FViewConstants));
 	FLightingConstants LightingConstant{};
 	RenderCommand::UpdateBufferData(LightingCB.get(), &LightingConstant);
+
 
 	TileLightCulling.Init();
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
@@ -595,4 +597,52 @@ void FRenderer::EnsureTileLightCapacity(const FMatrix& ViewProjection, uint32 Wi
 	if (TileLightCulling.EnsureTileCapacity(Width, Height))
 		TileLightCulling.Dispatch(LocalLight, ViewProjection, Width, Height, bVisualizeLightCount);
 
+}
+
+void FRenderer::DrawDepthOnly(const FMatrix& ViewProjection)
+{
+	FViewConstants ViewConstants;
+	ViewConstants.ViewProjection = ViewProjection;
+	RenderCommand::UpdateBufferData(DepthViewCB.get(), &ViewConstants);
+	RenderCommand::BindConstantBuffer(0, DepthViewCB.get(), EShaderBindFlagBits::Vertex);
+
+	const auto BindObjectSlot = [this](uint32 Slot, const FMatrix& World, const FMatrix& NormalMatrix)
+		{
+			if (bUsePerObjectSlots && Slot != InvalidObjectSlot)
+			{
+				RenderCommand::BindConstantBufferRange(2, PerObjectSlotCB.get(), Slot * PerObjectSlotConstants, PerObjectSlotConstants, EShaderBindFlagBits::Vertex);
+			}
+			else
+			{
+				RenderCommand::BindConstantBuffer(2, PerObjectCB.get(), EShaderBindFlagBits::Vertex);
+				UpdatePerObjectConstants(World, NormalMatrix);
+			}
+		};
+
+	// 스태틱 메시 -> 벤치마크 엔진용
+	for (const FStaticDrawGroup* Group : StaticGroups)
+	{
+		RenderCommand::BindMesh(Group->Mesh, Group->LODIndex);
+		for (const FStaticDrawItem& Item : Group->Items)
+		{
+			BindObjectSlot(Item.Slot, Item.Proxy->GetLocalToWorld(), Item.Proxy->GetNormalMatrix());
+			RenderCommand::DrawIndexed(Item.IndexCount, Item.StartIndex);
+		}
+	}
+
+	// 불투명 패킷
+	for (uint32 i = 0; i < FirstTranslucentIndex; ++i)
+	{
+		const FRenderPacket& Packet = RenderPackets[SortEntries[i].PacketIndex];
+		if (Packet.Material->ParamLayout != EMaterialParamLayout::StaticMesh)
+			continue;
+
+		RenderCommand::BindMesh(Packet.Mesh, Packet.LODIndex);
+		BindObjectSlot(Packet.Slot, GetPacketWorld(Packet), GetPacketNormalMatrix(Packet));
+		uint32 idx = Packet.IndexCount ? Packet.IndexCount : Packet.Mesh->GetIndexBuffer(Packet.LODIndex)->GetIndexCount();
+		RenderCommand::DrawIndexed(idx, Packet.StartIndex);
+	}
+
+	LastMesh = nullptr;
+	LastMaterial = nullptr;
 }

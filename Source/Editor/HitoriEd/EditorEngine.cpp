@@ -118,6 +118,9 @@ bool UEditorEngine::Init()
 	DepthViewRenderer = MakeUnique<FDepthViewRenderer>();
 	DepthViewRenderer->Init();
 
+	ShadowRenderer = MakeUnique<FShadowRenderer>();
+	ShadowRenderer->Init();
+
 
 	// 필요한 Panel들 추가후 raw pointer 반환(소유권 = EditorUI)
 	DetailsPanel = EditorUI->AddEditorPanel<FDetailsPanel>();
@@ -609,7 +612,10 @@ void UEditorEngine::RenderOpaquePass(const int32 ViewIndex, const FRenderingInfo
 		Renderer->SetViewMode(ViewRenderMode);
 		// 불투명을 먼저 그리고 반투명을 먼 것부터 그린다.
 		// Grid는 깊이를 쓰지 않는 반투명 위에도 겹칠 수 있지만, 언리얼의 에디터 프리미티브처럼 Overlay Pass에서 마지막에 합성한다.
-		Renderer->RenderQueueSorting(RenderQueue, ViewProjection, ViewCameraLocation);
+		
+		//Renderer->RenderQueueSorting(RenderQueue, ViewProjection, ViewCameraLocation);
+		// 섀도우 패스 이전에 정렬 필요함. 주석처리 후 섀도우 패스 이전에 정렬.
+
 		Renderer->RenderOpaque(ViewProjection);
 		Renderer->RenderTranslucent(ViewProjection);
 		// 장면 Wireframe이 Grid·Gizmo·UI로 전파되지 않도록 복원한다.
@@ -910,9 +916,25 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	TArray<FPointLightInfo> PointLights;
 	TArray<FSpotLightInfo> SpotLights;
 
+	ShadowRenderer->UnbindShading();
+
 	ViewWorld.GetScene().BuildLightingConstants(Lighting);
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
+
+	// 섀도우 패스
+	const bool bDrawPrimitives = SettingsPanel->GetSettings().bDrawPrimitives;
+	if (bDrawPrimitives)
+	{
+		Renderer->RenderQueueSorting(RenderQueue, ViewProjection, ViewCameraLocation);
+
+		Lighting.Directional.ShadowVP = ShadowRenderer->BuildDirectionalShadowVP(
+			ViewCameraLocation, ViewCameraForward, Lighting.Directional.Direction,
+			Lighting.Directional.ShadowDistance, 0.0f, 0.0f);
+		ShadowRenderer->RenderDepth(*Renderer, Lighting.Directional.ShadowVP);
+	}
+
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
+	ShadowRenderer->BindShading();
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);
