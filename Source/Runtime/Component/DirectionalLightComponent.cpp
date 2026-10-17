@@ -3,6 +3,16 @@
 #include "Engine/LightSceneProxy.h"
 #include "Render/LineBatcher.h"
 
+UDirectionalLightComponent::UDirectionalLightComponent() {
+    GetCamera()->SetAspectRatio(1.0f);
+    GetCamera()->SetIsOrthogonal(true);
+    GetCamera()->SetNearZ(0.01f);
+    GetCamera()->SetFarZ(100.0f);
+
+
+    GetCamera()->SetOrthoWidth(10.0f);
+}
+
 FDirectionalLightInfo UDirectionalLightComponent::GetDirectionalLightInfo() const
 {
 	FDirectionalLightInfo Info;
