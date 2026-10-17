@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "PrimitiveSceneProxy.h"
 #include "Component/BillboardComponent.h"
@@ -12,6 +12,8 @@
 
 class FLightSceneProxy;
 class ULightComponentBase;
+struct FProjectedShadowInfo;
+class FShadowRenderer;
 
 struct FExponentialHeightFogSceneInfo
 {
@@ -36,7 +38,7 @@ public:
 	void RemoveLight(ULightComponentBase* Component);
 	void RemoveAllLights();
 	void MarkLightDirty(FLightSceneProxy* Proxy);
-	// Ambient·Directional은 마지막으로 등록된 것 하나, Point·Spot은 MaxPointLights·MaxSpotLights개까지 담는다.
+	// 전역 조명인 Ambient·Directional 라이트 정보를 상수 버퍼 구조체에 담는다.
 	void BuildLightingConstants(FLightingConstants& Out) const;
 
 	void UpdateAllTransforms();
@@ -47,9 +49,7 @@ public:
 	void MarkRenderStateDirty(FPrimitiveSceneProxy* Proxy);
 
 	void BuildStructuredLight(TArray<FPointLightInfo>& OutPointLight, TArray<FSpotLightInfo>& OutSpotLight) const;
-	void BuildDirectionalShadowSettings(FDirectionalShadowSettings& Out) const;
-
-	const FDirectionalLightSceneProxy* GetDirectionalLightProxy() const;
+	void GatherProjectedShadows(TArray<FProjectedShadowInfo>& OutShadows, const FVector& ViewCameraLocation, FShadowRenderer& ShadowRenderer) const;
 
 	TArray<FPrimitiveSceneProxy*> Proxies;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;

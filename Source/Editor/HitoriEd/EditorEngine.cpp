@@ -854,19 +854,42 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
-void UEditorEngine::RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FDirectionalShadowSettings& ShadowSettings, const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups)
+void UEditorEngine::RenderShadowPass(const TArray<FProjectedShadowInfo>& ProjectedShadows, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups)
 {
 	if (!ShadowRenderer) return;
 
-	ShadowRenderer->UnbindForShading();
+	bool bHasDirectional = false;
+	bool bHasSpot = false;
 
-	FRenderingInfo PassInfo = ShadowRenderer->GetShadowPassInfo();
-	RenderCommand::BeginRenderPass(PassInfo);
-	ShadowRenderer->OnRender(DirectionalLight, ShadowSettings, ViewCameraLocation, RenderQueue, StaticGroups);
-	RenderCommand::EndRenderPass(PassInfo);
+	for (const FProjectedShadowInfo& Shadow : ProjectedShadows)
+	{
+		if (Shadow.ProjectionType == EShadowProjectionType::Directional && Shadow.bCastShadow)
+		{
+			bHasDirectional = true;
+		}
+		else if (Shadow.ProjectionType == EShadowProjectionType::Spot && Shadow.bCastShadow)
+		{
+			bHasSpot = true;
+		}
+	}
 
-	// Opaque 패스에서 읽을 수 있게 바인딩 (t2, s1, b5)
-	ShadowRenderer->BindForShading();
+	if (!bHasDirectional)
+	{
+		ShadowRenderer->DisableDirectionalShadow();
+	}
+	if (!bHasSpot)
+	{
+		ShadowRenderer->DisableSpotShadow();
+	}
+
+	for (const FProjectedShadowInfo& Shadow : ProjectedShadows)
+	{
+		ShadowRenderer->UnbindForShading(Shadow);
+		RenderCommand::BeginRenderPass(Shadow.ShadowPassInfo);
+		ShadowRenderer->RenderShadowMap(Shadow, RenderQueue, StaticGroups);
+		RenderCommand::EndRenderPass(Shadow.ShadowPassInfo);
+		ShadowRenderer->BindForShading(Shadow);
+	}
 }
 
 // 입력 View의 Ray와 피킹으로 Gizmo·공유 선택을 갱신한다.
@@ -927,15 +950,15 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	FLightingConstants Lighting;
 	TArray<FPointLightInfo> PointLights;
 	TArray<FSpotLightInfo> SpotLights;
-	FDirectionalShadowSettings ShadowSettings;
 
 	ViewWorld.GetScene().BuildLightingConstants(Lighting);
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
-	ViewWorld.GetScene().BuildDirectionalShadowSettings(ShadowSettings);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
-	// 0. Shadow Pass: 그림자 맵은 씬 컬러를 그리기 전에 그려야 한다.
-	RenderShadowPass(Lighting.Directional, ShadowSettings, ViewCameraLocation, RenderQueue, Renderer->GetStaticDrawGroups());
+	// 0. Shadow Pass: 씬에서 그림자 켜진 라이트들을 모아 렌더링
+	TArray<FProjectedShadowInfo> ProjectedShadows;
+	ViewWorld.GetScene().GatherProjectedShadows(ProjectedShadows, ViewCameraLocation, *ShadowRenderer);
+	RenderShadowPass(ProjectedShadows, RenderQueue, Renderer->GetStaticDrawGroups());
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);

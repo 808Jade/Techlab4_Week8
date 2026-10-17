@@ -8,11 +8,57 @@
 #include "LightInfo.h"
 #include "Renderer.h"
 
-struct FShadowConstants
+class FDirectionalLightSceneProxy;
+class FSpotLightSceneProxy;
+
+struct FDirectionalShadowConstants
 {
+	FMatrix DirectionalLightViewProjection;
+	float DirectionalShadowBias = 0.0005f;
+	uint32 bCastDirectionalShadow = 0;
+	float DirectionalShadowTexelSize = 1.953125f;
+	float DirectionalNormalBias = 1.0f;
+};
+static_assert(sizeof(FDirectionalShadowConstants) == 80);
+
+struct FSpotShadowConstants
+{
+	FMatrix SpotLightViewProjection;
+	float SpotShadowBias = 0.001f;
+	int32 ShadowSpotLightIndex = -1;
+	float SpotShadowTexelSize = 1.0f;
+	float SpotNormalBias = 1.0f;
+};
+static_assert(sizeof(FSpotShadowConstants) == 80);
+
+enum class EShadowProjectionType : uint8
+{
+	Directional, 
+	Spot,        
+	Point        
+};
+
+struct FProjectedShadowInfo
+{
+	EShadowProjectionType ProjectionType = EShadowProjectionType::Directional;
+	// 1. 빛 시점의 카메라 정보 (메시 드로우 시 VS 상수버퍼 b0에 들어감)
+	FMatrix LightViewMatrix;
+	FMatrix LightProjMatrix;
 	FMatrix LightViewProjection;
-	float ShadowBias;
-	FVector ShadowPadding;
+	FVector LightPosition;
+	// 2. 그림자 파라미터
+	float ShadowBias = 0.0005f;
+	float ShadowNormalBias = 1.0f;
+	float ShadowTexelSize = 1.0f;
+	bool bCastShadow = true;
+	// 3. 타깃 텍스처 및 패스 정보
+	FTexture2D* TargetShadowMap = nullptr;
+	FRenderingInfo ShadowPassInfo;
+	// 4. 셰이더 바인딩 슬롯 (Directional: t2/b5, Spot: t3/b6)
+	uint32 ShaderResourceSlot = 2;
+	uint32 ConstantBufferSlot = 5;
+	FConstantBuffer* ConstantBuffer = nullptr;
+	int32 LightIndex = -1;
 };
 
 class FShadowRenderer
@@ -25,13 +71,20 @@ public:
 	FShadowRenderer& operator=(const FShadowRenderer&) = delete;
 
 	bool Init(uint32 InResolution = 2048);
-	void OnRender(const FDirectionalLightInfo& DirectionalLight, const FDirectionalShadowSettings& ShadowSettings,
-		const FVector& FocusPosition, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
+	void RenderShadowMap(const FProjectedShadowInfo& ShadowInfo, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
 
-	void BindForShading();
-	void UnbindForShading();
+	void BindForShading(const FProjectedShadowInfo& ShadowInfo);
+	void UnbindForShading(const FProjectedShadowInfo& ShadowInfo);
 
-	FTexture2D* GetShadowMap() const { return ShadowMap.get(); }
+	void DisableDirectionalShadow();
+	void DisableSpotShadow();
+
+	FProjectedShadowInfo SetupDirectionalShadow(const FDirectionalLightSceneProxy& DirProxy, const FVector& FocusPosition);
+	FProjectedShadowInfo SetupSpotShadow(const FSpotLightSceneProxy& SpotProxy, int32 InLightIndex = 0);
+
+	FTexture2D* GetDirectionalShadowMap() const { return DirectionalShadowMap.get(); }
+	FTexture2D* GetShadowMap() const { return DirectionalShadowMap.get(); }
+	FTexture2D* GetSpotShadowMap() const { return SpotShadowMap.get(); }
 	const FMatrix& GetLightViewProjection() const { return LightViewProjection; }
 	const FMatrix& GetLightView() const { return LightViewMatrix; }
 	const FMatrix& GetLightProj() const { return LightProjMatrix; }
@@ -39,6 +92,9 @@ public:
 
 	float GetShadowBias() const { return ShadowBias; }
 	void SetShadowBias(float InBias) { ShadowBias = InBias; }
+
+	float GetShadowNormalBias() const { return ShadowNormalBias; }
+	void SetShadowNormalBias(float InBias) { ShadowNormalBias = InBias; }
 
 	float GetOrthoWidth() const { return OrthoWidth; }
 	void SetOrthoWidth(float InWidth) { OrthoWidth = InWidth; }
@@ -48,7 +104,8 @@ public:
 
 	uint32 GetResolution() const { return Resolution; }
 
-	FRenderingInfo GetShadowPassInfo() const { return ShadowPassInfo; }
+	FRenderingInfo GetDirectionalShadowPassInfo() const { return DirectionalShadowPassInfo; }
+	FRenderingInfo GetSpotShadowPassInfo() const { return SpotShadowPassInfo; }
 
 private:
 	void UpdateLightMatrix(const FVector& LightDirection, const FVector& FocusPosition);
@@ -57,24 +114,29 @@ private:
 
 	uint32 Resolution = 2048;
 
-	// @todo : Light로부터 가져오도록 변경해야함
 	float OrthoWidth = 4000.0f;
 	float OrthoHeight = 4000.0f;
 	float NearClip = 10.0f;
 	float FarClip = 10000.0f;
 
-	float ShadowBias = 0.001f;
+	float ShadowBias = 0.0005f;
+	float ShadowNormalBias = 1.0f;
 
 	FVector LightPosition = FVector::ZeroVector;
 	FMatrix LightViewMatrix = FMatrix::Identity;
 	FMatrix LightProjMatrix = FMatrix::Identity;
 	FMatrix LightViewProjection = FMatrix::Identity;
 
-	TUniquePtr<FTexture2D> ShadowMap;
-	FRenderingInfo ShadowPassInfo;
+	TUniquePtr<FTexture2D> DirectionalShadowMap;
+	FRenderingInfo DirectionalShadowPassInfo;
+
+	TUniquePtr<FTexture2D> SpotShadowMap;
+	FRenderingInfo SpotShadowPassInfo;
 
 	FShaderProgram* ShadowShader = nullptr;
 	TUniquePtr<FConstantBuffer> ShadowViewCB;
 	TUniquePtr<FConstantBuffer> PerObjectCB;
-	TUniquePtr<FConstantBuffer> ShadowConstantsCB;
+	TUniquePtr<FConstantBuffer> DirectionalShadowConstantsCB;
+	TUniquePtr<FConstantBuffer> SpotShadowConstantsCB;
 };
+

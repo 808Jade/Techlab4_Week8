@@ -118,8 +118,8 @@ private:
 	//Depth Pass
 	void RenderDepthPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo, const FMatrix& ViewProjection, const FVector& ViewCameraLocation, const FVector& ViewCameraForward);
 	//Shadow Pass
-	void RenderShadowPass(const FDirectionalLightInfo& DirectionalLight, const FDirectionalShadowSettings& ShadowSettings,
-		const FVector& ViewCameraLocation, const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
+	void RenderShadowPass(const TArray<FProjectedShadowInfo>& ProjectedShadows,
+		const FRenderQueue& RenderQueue, const TArray<const FStaticDrawGroup*>& StaticGroups);
 
 	FWorldContext& GetEditorWorldContext();
 	FWorldContext* GetPIEWorldContext(int32 WorldPIEInstance = 0);

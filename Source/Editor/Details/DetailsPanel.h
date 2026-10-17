@@ -8,6 +8,7 @@
 struct FTransform;
 class FShadowRenderer;
 class UDirectionalLightComponent;
+class USpotLightComponent;
 
 using DetailsSelectionCallback = std::function<void(UActorComponent*)>;
 using DetailsDeleteComponentCallback = std::function<void(UActorComponent*)>;
@@ -44,6 +45,7 @@ public:
 
 private:
 	void DrawShadowMapPreview(UDirectionalLightComponent* DirLight);
+	void DrawSpotShadowMapPreview(USpotLightComponent* SpotLight);
 	void DrawSceneComponentNode(USceneComponent* Component, USceneComponent* Root, UActorComponent*& OutSelectedComponent);
 	void TryReparent(USceneComponent* DroppedComponent, USceneComponent* DragComponent);
 

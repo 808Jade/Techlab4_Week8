@@ -11,6 +11,7 @@
 #include "Component/RotatingMovementComponent.h"
 #include "Component/ProjectileMovementComponent.h"
 #include "Component/DirectionalLightComponent.h"
+#include "Component/SpotLightComponent.h"
 #include "Render/ShadowRenderer.h"
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
@@ -1011,6 +1012,10 @@ void FDetailsPanel::OnRender()
 			{
 				DrawShadowMapPreview(DirLight);
 			}
+			else if (USpotLightComponent* SpotLight = Cast<USpotLightComponent>(TargetComponent))
+			{
+				DrawSpotShadowMapPreview(SpotLight);
+			}
 			ImGui::PopID();
 
 			if (PendingDeleteComponent)
@@ -1058,6 +1063,41 @@ void FDetailsPanel::DrawShadowMapPreview(UDirectionalLightComponent* DirLight)
 		{
 			ImGui::SetTooltip("Directional Light Shadow Depth Map\nResolution: %u x %u\nOrtho Size: %.1f",
 				ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution(), DirLight->GetShadowOrthoSize());
+		}
+	}
+}
+
+void FDetailsPanel::DrawSpotShadowMapPreview(USpotLightComponent* SpotLight)
+{
+	if (!SpotLight || !ShadowRenderer || !ShadowRenderer->GetSpotShadowMap())
+	{
+		return;
+	}
+
+	ImGui::Spacing();
+	ImGui::SeparatorText("Spot Shadow Map Preview");
+
+	ImGui::Text("Resolution: %u x %u", ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution());
+
+	if (!SpotLight->GetCastShadows())
+	{
+		ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(Shadows Disabled)");
+	}
+
+	const float AvailWidth = ImGui::GetContentRegionAvail().x;
+	const float ImageSize = FMath::Clamp(AvailWidth - 10.0f, 64.0f, 320.0f);
+
+	if (ShadowRenderer->GetSpotShadowMap()->GetSRV())
+	{
+		ImGui::Image(
+			(ImTextureID)ShadowRenderer->GetSpotShadowMap()->GetSRV(),
+			ImVec2(ImageSize, ImageSize)
+		);
+
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Spot Light Shadow Depth Map\nResolution: %u x %u\nOuter Cone Angle: %.1f",
+				ShadowRenderer->GetResolution(), ShadowRenderer->GetResolution(), SpotLight->GetOuterConeAngle());
 		}
 	}
 }

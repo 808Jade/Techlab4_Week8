@@ -1,7 +1,8 @@
-﻿#include "EnginePCH.h"
+#include "EnginePCH.h"
 #include "Scene.h"
 #include "LightSceneProxy.h"
 #include "Render/ColorWorkflow.h"
+#include "Render/ShadowRenderer.h"
 
 void FScene::AddPrimitive(UPrimitiveComponent* Component)
 {
@@ -174,7 +175,7 @@ void FScene::BuildLightingConstants(FLightingConstants& Out) const
 
 	for (const FLightSceneProxy* Proxy : Lights)
 	{
-		if (!Proxy->IsVisible()) continue;
+		if (!Proxy || !Proxy->IsVisible()) continue;
 
 		switch (Proxy->GetLightType())
 		{
@@ -184,13 +185,7 @@ void FScene::BuildLightingConstants(FLightingConstants& Out) const
 		case ELightType::Directional:
 			Out.Directional = static_cast<const FDirectionalLightSceneProxy*>(Proxy)->GetInfo();
 			break;
-		case ELightType::Point:
-			if (Out.NumPointLights < MaxPointLights)
-				Out.PointLights[Out.NumPointLights++] = static_cast<const FPointLightSceneProxy*>(Proxy)->GetInfo();
-			break;
-		case ELightType::Spot:
-			if (Out.NumSpotLights < MaxSpotLights)
-				Out.SpotLights[Out.NumSpotLights++] = static_cast<const FSpotLightSceneProxy*>(Proxy)->GetInfo();
+		default:
 			break;
 		}
 	}
@@ -315,30 +310,35 @@ void FScene::BuildStructuredLight(TArray<FPointLightInfo>& OutPointLight, TArray
 
 }
 
-const FDirectionalLightSceneProxy* FScene::GetDirectionalLightProxy() const
+void FScene::GatherProjectedShadows(TArray<FProjectedShadowInfo>& OutShadows, const FVector& ViewCameraLocation, FShadowRenderer& ShadowRenderer) const
 {
-	for (const FLightSceneProxy* Proxy : Lights)
-	{
-		if (Proxy && Proxy->GetLightType() == ELightType::Directional && Proxy->IsVisible())
-		{
-			return static_cast<const FDirectionalLightSceneProxy*>(Proxy);
-		}
-	}
-	return nullptr;
-}
+	OutShadows.Empty();
 
-void FScene::BuildDirectionalShadowSettings(FDirectionalShadowSettings& Out) const
-{
-	Out = FDirectionalShadowSettings{};
+	int32 VisibleSpotIndex = 0;
+	bool bSpotShadowAdded = false;
+
 	for (const FLightSceneProxy* Proxy : Lights)
 	{
-		if (Proxy && Proxy->GetLightType() == ELightType::Directional && Proxy->IsVisible())
+		if (!Proxy || !Proxy->IsVisible())
+			continue;
+
+		if (Proxy->GetLightType() == ELightType::Directional)
 		{
 			const auto* DirProxy = static_cast<const FDirectionalLightSceneProxy*>(Proxy);
-			Out.bCastShadow = DirProxy->GetCastShadows();
-			Out.ShadowBias = DirProxy->GetShadowBias();
-			Out.ShadowOrthoSize = DirProxy->GetShadowOrthoSize();
-			return;
+			if (DirProxy->GetCastShadows())
+			{
+				OutShadows.Add(ShadowRenderer.SetupDirectionalShadow(*DirProxy, ViewCameraLocation));
+			}
+		}
+		else if (Proxy->GetLightType() == ELightType::Spot)
+		{
+			const auto* SpotProxy = static_cast<const FSpotLightSceneProxy*>(Proxy);
+			if (SpotProxy->GetCastShadows() && !bSpotShadowAdded)
+			{
+				OutShadows.Add(ShadowRenderer.SetupSpotShadow(*SpotProxy, VisibleSpotIndex));
+				bSpotShadowAdded = true;
+			}
+			VisibleSpotIndex++;
 		}
 	}
 }

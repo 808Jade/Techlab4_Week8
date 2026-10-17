@@ -34,9 +34,6 @@
 
 #define GOURAUD (VIEWMODE == VIEWMODE_LIT && SHADING_MODEL == SHADING_MODEL_GOURAUD)
 
-#define MAX_POINT_LIGHTS 4
-#define MAX_SPOT_LIGHTS 4
-
 struct FAmbientLightInfo
 {
     float3 Color;
@@ -121,11 +118,6 @@ cbuffer LightingConstants : register(b3)
 {
     FAmbientLightInfo AmbientLight;
     FDirectionalLightInfo DirectionalLight;
-    FPointLightInfo PointLights[MAX_POINT_LIGHTS];
-    FSpotLightInfo SpotLights[MAX_SPOT_LIGHTS];
-    uint NumPointLights;
-    uint NumSpotLights;
-    float2 LightingPadding;
 };
 
 cbuffer TileLightConstants : register(b4)
@@ -143,11 +135,22 @@ cbuffer TileLightConstants : register(b4)
     uint3 TileCullingPadding;
 };
 
-cbuffer ShadowConstants : register(b5)
+cbuffer DirectionalShadowConstants : register(b5)
 {
-    matrix LightViewProjection;
-    float ShadowBias;
-    float3 ShadowPadding;
+    matrix DirectionalLightViewProjection;
+    float DirectionalShadowBias;
+    uint bCastDirectionalShadow;
+    float DirectionalShadowTexelSize;
+    float DirectionalNormalBias;
+};
+
+cbuffer SpotShadowConstants : register(b6)
+{
+    matrix SpotLightViewProjection;
+    float SpotShadowBias;
+    int ShadowSpotLightIndex;
+    float SpotShadowTexelSize;
+    float SpotNormalBias;
 };
 
 StructuredBuffer<FPointLightInfo> StructuredPointLights : register(t8);
@@ -160,7 +163,8 @@ Texture2D AlbedoTexture : register(t0);
 #if USE_NORMAL_MAP
 Texture2D NormalTexture : register(t1);
 #endif
-Texture2D ShadowMap : register(t2);
+Texture2D DirectionalShadowMap : register(t2);
+Texture2D SpotShadowMap : register(t3);
 
 SamplerState AlbedoSampler : register(s0);
 SamplerComparisonState ShadowSampler : register(s1);
@@ -213,69 +217,21 @@ float3 GetLightCountColor(uint LightCount)
     return float3(1.0f, 0.0f, 0.0f);
 }
 
-// 일단 GOURAUD 전용
-void ComputeLighting(float3 N, float3 WorldPosition, float3 V, float n, out float3 DiffuseLight, out float3 SpecularLight)
+float CalculateDirectionalShadow(float3 WorldPosition, float3 N, float3 L)
 {
-    DiffuseLight = 0.0f;
-    SpecularLight = 0.0f;
-
-    // Directional Light
+    if (bCastDirectionalShadow == 0u)
     {
-        float3 Il = DirectionalLight.Color;
-        float3 L = -DirectionalLight.Direction;
-        float GeoFactor = 1.0f;
-        AccumulateLight(Il * GeoFactor, N, L, V, n, DiffuseLight, SpecularLight);
+        return 1.0f;
     }
 
-    // Point Light
-    {
-        for (uint Index = 0; Index < NumPointLights; ++Index)
-        {
-            FPointLightInfo Light = PointLights[Index];
-            float3 ToLight = Light.Position - WorldPosition;
-            float Distance = length(ToLight);
-            float Radius = Light.AttenuationRadius;
-            if (Distance >= Radius)
-                continue;
+    float NdotL = saturate(dot(N, L));
+    
+    // Normal Offset Bias: 노멀 방향으로 텍셀 크기 기반 오프셋 적용
+    float NormalOffsetScale = clamp(1.0f - NdotL, 0.0f, 1.0f);
+    float3 ShadowWorldPos = WorldPosition + N * (DirectionalShadowTexelSize * DirectionalNormalBias * NormalOffsetScale);
 
-            float3 L = ToLight / Distance;
-            float GeoFactor = 1.0f;
-
-            float DistanceAttenuation = ComputeDistanceAttenuation(Distance, Radius);
-            float3 Il = Light.Color * DistanceAttenuation * GeoFactor;
-            AccumulateLight(Il, N, L, V, n, DiffuseLight, SpecularLight);
-        }
-    }
-
-    // Spot Light
-    {
-        for (uint Index = 0; Index < NumSpotLights; ++Index)
-        {
-            FSpotLightInfo Light = SpotLights[Index];
-            float3 ToLight = Light.Position - WorldPosition;
-            float Distance = length(ToLight);
-            float Radius = Light.AttenuationRadius;
-            if (Distance >= Radius)
-                continue;
-            float3 L = ToLight / Distance;
-            float GeoFactor = 1.0f;
-
-            float DistanceAttenuation = ComputeDistanceAttenuation(Distance, Radius);
-            float CosAngle = dot(-L, Light.Direction);
-            float SpotAttenuation = Light.CosInnerCone == Light.CosOuterCone
-            ? (CosAngle > Light.CosOuterCone ? 1.0f : 0.0f)
-            : saturate((CosAngle - Light.CosOuterCone) / (Light.CosInnerCone - Light.CosOuterCone));
-            
-            float3 Il = Light.Color * DistanceAttenuation * SpotAttenuation * GeoFactor;
-            AccumulateLight(Il, N, L, V, n, DiffuseLight, SpecularLight);
-        }
-    }
-}
-
-float CalculateShadow(float3 WorldPosition, float3 N, float3 L)
-{
     // World -> Light Space(Clip)
-    float4 LightPos = mul(float4(WorldPosition, 1.0f), LightViewProjection);
+    float4 LightPos = mul(float4(ShadowWorldPos, 1.0f), DirectionalLightViewProjection);
     float3 ProjCoords = LightPos.xyz / LightPos.w;
     
     float2 ShadowUV = float2(ProjCoords.x * 0.5f + 0.5f, -ProjCoords.y * 0.5f + 0.5f);
@@ -287,12 +243,61 @@ float CalculateShadow(float3 WorldPosition, float3 N, float3 L)
         return 1.0f;
     }
     
-    float NdotL = saturate(dot(N, L));
-    float Bias = max(ShadowBias * (1.0f - NdotL), ShadowBias * 0.2f);
+    float Bias = max(DirectionalShadowBias * (1.0f - NdotL), DirectionalShadowBias * 0.1f);
     float CurrentDepth = ProjCoords.z - Bias;
     
-    return ShadowMap.SampleCmpLevelZero(ShadowSampler, ShadowUV, CurrentDepth);
+    return DirectionalShadowMap.SampleCmpLevelZero(ShadowSampler, ShadowUV, CurrentDepth);
 }
+
+float CalculateSpotShadow(float3 WorldPosition, float3 N, float3 L)
+{
+    if (ShadowSpotLightIndex < 0)
+    {
+        return 1.0f;
+    }
+
+    float NdotL = saturate(dot(N, L));
+    float NormalOffsetScale = clamp(1.0f - NdotL, 0.0f, 1.0f);
+    float3 ShadowWorldPos = WorldPosition + N * (SpotShadowTexelSize * SpotNormalBias * NormalOffsetScale);
+
+    float4 LightPos = mul(float4(ShadowWorldPos, 1.0f), SpotLightViewProjection);
+    if (LightPos.w <= 0.0f)
+    {
+        return 1.0f;
+    }
+
+    float3 ProjCoords = LightPos.xyz / LightPos.w;
+    float2 ShadowUV = float2(ProjCoords.x * 0.5f + 0.5f, -ProjCoords.y * 0.5f + 0.5f);
+    
+    if (ShadowUV.x < 0.0f || ShadowUV.x > 1.0f ||
+        ShadowUV.y < 0.0f || ShadowUV.y > 1.0f ||
+        ProjCoords.z < 0.0f || ProjCoords.z > 1.0f)
+    {
+        return 1.0f;
+    }
+    
+    float Bias = max(SpotShadowBias * (1.0f - NdotL), SpotShadowBias * 0.1f);
+    float CurrentDepth = ProjCoords.z - Bias;
+    
+    return SpotShadowMap.SampleCmpLevelZero(ShadowSampler, ShadowUV, CurrentDepth);
+}
+
+// 일단 GOURAUD 전용
+void ComputeLighting(float3 N, float3 WorldPosition, float3 V, float n, out float3 DiffuseLight, out float3 SpecularLight)
+{
+    DiffuseLight = 0.0f;
+    SpecularLight = 0.0f;
+
+    // Directional Light
+    {
+        float3 Il = DirectionalLight.Color;
+        float3 L = -DirectionalLight.Direction;
+        float GeoFactor = 1.0f;
+        float ShadowFactor = CalculateDirectionalShadow(WorldPosition, N, L);
+        AccumulateLight(Il * GeoFactor * ShadowFactor, N, L, V, n, DiffuseLight, SpecularLight);
+    }
+}
+
 
 void ComputeTiledLighting(float3 N,
 #if USE_NORMAL_MAP
@@ -312,7 +317,7 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
 #else
         float GeoFactor = 1.0f;
 #endif
-        float ShadowFactor = CalculateShadow(WorldPosition, N, L);
+        float ShadowFactor = CalculateDirectionalShadow(WorldPosition, N, L);
         AccumulateLight(Il * GeoFactor * ShadowFactor, N, L, V, n, DiffuseLight, SpecularLight);
     }
 
@@ -380,7 +385,13 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
             ? (CosAngle > Light.CosOuterCone ? 1.0f : 0.0f)
             : saturate((CosAngle - Light.CosOuterCone) / (Light.CosInnerCone - Light.CosOuterCone));
 
-        float3 Il = Light.Color * DistanceAttenuation * SpotAttenuation * GeoFactor;
+        float ShadowFactor = 1.0f;
+        if (ShadowSpotLightIndex >= 0 && LightIndex == (uint)ShadowSpotLightIndex)
+        {
+            ShadowFactor = CalculateSpotShadow(WorldPosition, N, L);
+        }
+
+        float3 Il = Light.Color * DistanceAttenuation * SpotAttenuation * GeoFactor * ShadowFactor;
         AccumulateLight(Il, N, L, V, n, DiffuseLight, SpecularLight);
     }
 }

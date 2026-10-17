@@ -10,6 +10,9 @@ class USpotLightComponent : public UPointLightComponent
 	REFLECT_START(USpotLightComponent)
 		PROPERTY(InnerConeAngle)
 		PROPERTY(OuterConeAngle)
+		PROPERTY(bCastShadows)
+		PROPERTY(ShadowBias)
+		PROPERTY(ShadowNormalBias)
 	REFLECT_END()
 
 public:
@@ -26,7 +29,19 @@ public:
 
 	void DrawDebug(FLineBatcher* LineBatcher) const;
 
+	bool GetCastShadows() const { return bCastShadows; }
+	void SetCastShadows(bool bInCast) { bCastShadows = bInCast; MarkSceneProxyDirty(); }
+
+	float GetShadowBias() const { return ShadowBias; }
+	void SetShadowBias(float InBias) { ShadowBias = InBias; MarkSceneProxyDirty(); }
+
+	float GetShadowNormalBias() const { return ShadowNormalBias; }
+	void SetShadowNormalBias(float InBias) { ShadowNormalBias = InBias; MarkSceneProxyDirty(); }
+
 protected:
 	float InnerConeAngle = 0.0f;
 	float OuterConeAngle = 44.0f;
+	bool bCastShadows = true;
+	float ShadowBias = 0.001f;
+	float ShadowNormalBias = 1.0f;
 };
