@@ -855,8 +855,11 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
-void UEditorEngine::ShadowPass(const FRenderQueue &RenderTargets)
+void UEditorEngine::ShadowPass()
 {
+	FRenderQueue ShadowQueue;
+	EditorWorld->GatherRenderPackets(ShadowQueue);
+
 	for (auto light : EditorWorld->GetScene().Lights) {
 		if (light->GetLightType() == ELightType::Directional) {
 			ULightComponent * lightComponent = Cast<ULightComponent>(light->GetComponent());
@@ -871,7 +874,8 @@ void UEditorEngine::ShadowPass(const FRenderQueue &RenderTargets)
 			RenderInfo.ViewportSetting.Height = lightComponent->GetShadowResolution();
 
 			RenderCommand::BeginRenderPass(RenderInfo);
-			LightDepthRenderer->OnRender(lightComponent->GetCamera()->GetViewProjectionMatrix(), RenderTargets);
+
+			LightDepthRenderer->OnRender(lightComponent->GetCamera()->GetViewProjectionMatrix(), ShadowQueue);
 			RenderCommand::EndRenderPass(RenderInfo);
 
 		}
@@ -941,7 +945,7 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
-	ShadowPass(RenderQueue);
+	ShadowPass();
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);
