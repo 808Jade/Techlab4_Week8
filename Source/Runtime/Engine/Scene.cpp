@@ -317,6 +317,9 @@ void FScene::GatherProjectedShadows(TArray<FProjectedShadowInfo>& OutShadows, co
 	int32 VisibleSpotIndex = 0;
 	bool bSpotShadowAdded = false;
 
+	int32 VisiblePointIndex = 0;
+	bool bPointShadowAdded = false;
+
 	for (const FLightSceneProxy* Proxy : Lights)
 	{
 		if (!Proxy || !Proxy->IsVisible())
@@ -339,6 +342,16 @@ void FScene::GatherProjectedShadows(TArray<FProjectedShadowInfo>& OutShadows, co
 				bSpotShadowAdded = true;
 			}
 			VisibleSpotIndex++;
+		}
+		else if (Proxy->GetLightType() == ELightType::Point)
+		{
+			const auto* PointProxy = static_cast<const FPointLightSceneProxy*>(Proxy);
+			if (PointProxy->GetCastShadows() && !bPointShadowAdded)
+			{
+				OutShadows.Add(ShadowRenderer.SetupPointShadow(*PointProxy, VisiblePointIndex));
+				bPointShadowAdded = true;
+			}
+			VisiblePointIndex++;
 		}
 	}
 }

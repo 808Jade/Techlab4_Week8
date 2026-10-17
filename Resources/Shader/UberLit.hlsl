@@ -153,6 +153,16 @@ cbuffer SpotShadowConstants : register(b6)
     float SpotNormalBias;
 };
 
+cbuffer PointShadowConstants : register(b7)
+{
+    float3 PointLightPosition;
+    float PointShadowBias;
+    float PointShadowNormalBias;
+    float PointAttenuationRadius;
+    int ShadowPointLightIndex;
+    float PointShadowPadding;
+};
+
 StructuredBuffer<FPointLightInfo> StructuredPointLights : register(t8);
 StructuredBuffer<FSpotLightInfo> StructuredSpotLights : register(t9);
 StructuredBuffer<uint> PointTileList : register(t10);
@@ -165,6 +175,7 @@ Texture2D NormalTexture : register(t1);
 #endif
 Texture2D DirectionalShadowMap : register(t2);
 Texture2D SpotShadowMap : register(t3);
+TextureCube PointShadowMap : register(t4);
 
 SamplerState AlbedoSampler : register(s0);
 SamplerComparisonState ShadowSampler : register(s1);
@@ -282,6 +293,40 @@ float CalculateSpotShadow(float3 WorldPosition, float3 N, float3 L)
     return SpotShadowMap.SampleCmpLevelZero(ShadowSampler, ShadowUV, CurrentDepth);
 }
 
+float CalculatePointShadow(float3 WorldPosition, float3 N, float3 L)
+{
+    if (ShadowPointLightIndex < 0)
+    {
+        return 1.0f;
+    }
+
+    float NdotL = saturate(dot(N, L));
+    float NormalOffsetScale = clamp(1.0f - NdotL, 0.0f, 1.0f);
+
+    // 1. 노멀 오프셋 적용
+    float3 ShadowWorldPos = WorldPosition + N * (PointShadowNormalBias * NormalOffsetScale);
+
+    // 2. 빛에서 픽셀로 향하는 3D 방향과 시선 깊이(Zview) 계산
+    float3 ToPixel = ShadowWorldPos - PointLightPosition;
+    float3 AbsVec = abs(ToPixel);
+    float Zview = max(AbsVec.x, max(AbsVec.y, AbsVec.z));
+
+    if (Zview >= PointAttenuationRadius || Zview <= 0.1f)
+    {
+        return 1.0f;
+    }
+
+    // 3. 투영 행렬의 NDC Depth 공식으로 변환 (NearZ = 0.1f, FarZ = PointAttenuationRadius)
+    float NearZ = 0.1f;
+    float FarZ = PointAttenuationRadius;
+    float Bias = max(PointShadowBias * (1.0f - NdotL), PointShadowBias * 0.1f);
+    float BiasedZ = max(Zview - Bias, NearZ);
+    float CurrentDepth = (FarZ / (FarZ - NearZ)) - ((NearZ * FarZ) / ((FarZ - NearZ) * BiasedZ));
+
+    // 4. TextureCube에 3D 방향 벡터(ToPixel)를 찔러넣어 하드웨어 섀도우 비교
+    return PointShadowMap.SampleCmpLevelZero(ShadowSampler, ToPixel, CurrentDepth);
+}
+
 // 일단 GOURAUD 전용
 void ComputeLighting(float3 N, float3 WorldPosition, float3 V, float n, out float3 DiffuseLight, out float3 SpecularLight)
 {
@@ -350,7 +395,13 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
 #endif
 
         float DistanceAttenuation = ComputeDistanceAttenuation(Distance, Radius);
-        float3 Il = Light.Color * DistanceAttenuation * GeoFactor;
+        float ShadowFactor = 1.0f;
+        if (ShadowPointLightIndex >= 0 && LightIndex == (uint)ShadowPointLightIndex)
+        {
+            ShadowFactor = CalculatePointShadow(WorldPosition, N, L);
+        }
+
+        float3 Il = Light.Color * DistanceAttenuation * GeoFactor * ShadowFactor;
         AccumulateLight(Il, N, L, V, n, DiffuseLight, SpecularLight);
     }
 

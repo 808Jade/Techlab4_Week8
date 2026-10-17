@@ -860,6 +860,7 @@ void UEditorEngine::RenderShadowPass(const TArray<FProjectedShadowInfo>& Project
 
 	bool bHasDirectional = false;
 	bool bHasSpot = false;
+	bool bHasPoint = false;
 
 	for (const FProjectedShadowInfo& Shadow : ProjectedShadows)
 	{
@@ -871,6 +872,10 @@ void UEditorEngine::RenderShadowPass(const TArray<FProjectedShadowInfo>& Project
 		{
 			bHasSpot = true;
 		}
+		else if (Shadow.ProjectionType == EShadowProjectionType::Point && Shadow.bCastShadow)
+		{
+			bHasPoint = true;
+		}
 	}
 
 	if (!bHasDirectional)
@@ -881,13 +886,24 @@ void UEditorEngine::RenderShadowPass(const TArray<FProjectedShadowInfo>& Project
 	{
 		ShadowRenderer->DisableSpotShadow();
 	}
+	if (!bHasPoint)
+	{
+		ShadowRenderer->DisablePointShadow();
+	}
 
 	for (const FProjectedShadowInfo& Shadow : ProjectedShadows)
 	{
 		ShadowRenderer->UnbindForShading(Shadow);
-		RenderCommand::BeginRenderPass(Shadow.ShadowPassInfo);
-		ShadowRenderer->RenderShadowMap(Shadow, RenderQueue, StaticGroups);
-		RenderCommand::EndRenderPass(Shadow.ShadowPassInfo);
+		if (Shadow.ProjectionType == EShadowProjectionType::Point)
+		{
+			ShadowRenderer->RenderShadowMap(Shadow, RenderQueue, StaticGroups);
+		}
+		else
+		{
+			RenderCommand::BeginRenderPass(Shadow.ShadowPassInfo);
+			ShadowRenderer->RenderShadowMap(Shadow, RenderQueue, StaticGroups);
+			RenderCommand::EndRenderPass(Shadow.ShadowPassInfo);
+		}
 		ShadowRenderer->BindForShading(Shadow);
 	}
 }

@@ -22,3 +22,28 @@ private:
 
 	ComPtr<ID3D11RenderTargetView> FaceRTVs[FaceCount];
 };
+
+class FDepthTextureCube : public FTexture
+{
+public:
+	static constexpr uint32 FaceCount = 6;
+
+	FDepthTextureCube(ID3D11Device* Device, uint32 InResolution);
+	~FDepthTextureCube() = default;
+
+	ID3D11DepthStencilView* GetFaceDSV(uint32 Face) const
+	{
+		return Face < FaceCount ? FaceDSVs[Face].Get() : nullptr;
+	}
+
+	void ClearFace(ID3D11DeviceContext* Context, uint32 Face, float Depth = 1.0f)
+	{
+		if (Face < FaceCount && FaceDSVs[Face])
+		{
+			Context->ClearDepthStencilView(FaceDSVs[Face].Get(), D3D11_CLEAR_DEPTH, Depth, 0);
+		}
+	}
+
+private:
+	ComPtr<ID3D11DepthStencilView> FaceDSVs[FaceCount];
+};

@@ -3,6 +3,8 @@
 #include "RenderDevice.h"
 
 class FBuffer;
+class FTexture;
+class FTexture2D;
 class UStaticMesh;
 class UTexture2D;
 class FShaderProgram;
@@ -72,6 +74,7 @@ public:
 	static void* MapWriteDiscard(FBuffer* InBuffer);
 	static void Unmap(FBuffer* InBuffer);
 	// bRawData: 노멀맵처럼 색이 아닌 데이터는 sRGB로 불러왔더라도 저장된 값 그대로 읽는다.
+	static void BindShaderResource(uint32 Slot, FTexture* Texture, EShaderBindFlagBits FlagBits, bool bRawData = false);
 	static void BindShaderResource(uint32 Slot, FTexture2D* Texture2D, EShaderBindFlagBits FlagBits, bool bRawData = false);
 	static void BindShaderResource(uint32 Slot, UTexture2D* Texture2D, EShaderBindFlagBits FlagBits, bool bRawData = false);
 	// 슬롯의 SRV를 비운다. 같은 텍스처를 다음 패스에서 RTV로 쓰기 전에 호출한다.

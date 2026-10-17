@@ -4,6 +4,7 @@
 #include "RenderResourceManager.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
+#include "TextureCube.h"
 
 bool FShadowRenderer::Init(uint32 InResolution)
 {
@@ -64,6 +65,13 @@ bool FShadowRenderer::Init(uint32 InResolution)
 	SpotShadowPassInfo.DepthStencil.ClearValue.DepthClearValue = 1.0f;
 	SpotShadowPassInfo.DepthStencil.ClearValue.StencilClearValue = 0;
 
+	PointShadowMap = MakeUnique<FDepthTextureCube>(RenderCommand::GetDevice(), Resolution);
+	if (!PointShadowMap || !PointShadowMap->GetSRV() || !PointShadowMap->GetFaceDSV(0))
+	{
+		HTR_LOG(Error, "[ShadowRenderer] Failed to create Point DepthTextureCube (Resolution: {})", Resolution);
+		return false;
+	}
+
 	ShadowShader = FRenderResourceManager::GetShaderProgram("Resources/Shader/ShadowDepthShader.hlsl");
 	if (!ShadowShader)
 	{
@@ -81,9 +89,11 @@ bool FShadowRenderer::Init(uint32 InResolution)
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
 	DirectionalShadowConstantsCB = RenderCommand::CreateConstantBuffer(sizeof(FDirectionalShadowConstants));
 	SpotShadowConstantsCB = RenderCommand::CreateConstantBuffer(sizeof(FSpotShadowConstants));
+	PointShadowConstantsCB = RenderCommand::CreateConstantBuffer(sizeof(FPointShadowConstants));
 
 	DisableDirectionalShadow();
 	DisableSpotShadow();
+	DisablePointShadow();
 
 	return true;
 }
@@ -142,61 +152,95 @@ void FShadowRenderer::RenderShadowMap(
 		return;
 	}
 
+	RenderCommand::BindPipelineState(PipelineState);
+	RenderCommand::BindConstantBuffer(0, ShadowViewCB.get(), EShaderBindFlagBits::Vertex);
+	RenderCommand::BindConstantBuffer(2, PerObjectCB.get(), EShaderBindFlagBits::Vertex);
+
+	auto DrawMeshes = [&]()
+	{
+		// 불투명 스태틱 물체
+		for (const FStaticDrawGroup* Group : StaticGroups)
+		{
+			if (!Group || !Group->Mesh) continue;
+
+			RenderCommand::BindMesh(Group->Mesh, Group->LODIndex);
+
+			for (const FStaticDrawItem& Item : Group->Items)
+			{
+				if (!Item.Proxy) continue;
+
+				FPerObjectConstants ObjectConstants;
+				ObjectConstants.World = Item.Proxy->GetLocalToWorld();
+				ObjectConstants.NormalMatrix = Item.Proxy->GetNormalMatrix();
+				RenderCommand::UpdateBufferData(PerObjectCB.get(), &ObjectConstants);
+
+				RenderCommand::DrawIndexed(Item.IndexCount, Item.StartIndex);
+			}
+		}
+
+		// 동적/특수/반투명 물체
+		for (const FRenderPacket& Packet : RenderQueue)
+		{
+			if (!Packet.Mesh) continue;
+
+			// 반투명 머티리얼은 그림자X
+			if (Packet.Material && Packet.Material->BlendState != EBlendState::Opaque) continue;
+
+			RenderCommand::BindMesh(Packet.Mesh, Packet.LODIndex);
+
+			FPerObjectConstants ObjectConstants;
+			if (Packet.Proxy)
+			{
+				ObjectConstants.World = Packet.Proxy->GetLocalToWorld();
+				ObjectConstants.NormalMatrix = Packet.Proxy->GetNormalMatrix();
+			}
+			else
+			{
+				ObjectConstants.World = Packet.Model ? *Packet.Model : FMatrix::Identity;
+				ObjectConstants.NormalMatrix = ObjectConstants.World.Inverse().GetTransposed();
+			}
+			RenderCommand::UpdateBufferData(PerObjectCB.get(), &ObjectConstants);
+
+			uint32 IndexCount = Packet.IndexCount ? Packet.IndexCount : Packet.Mesh->GetIndexBuffer(Packet.LODIndex)->GetIndexCount();
+			RenderCommand::DrawIndexed(IndexCount, Packet.StartIndex);
+		}
+	};
+
+	if (ShadowInfo.ProjectionType == EShadowProjectionType::Point)
+	{
+		if (!PointShadowMap) return;
+
+		FMatrix ProjMatrix = GetPointLightCubeProjMatrix(ShadowInfo.AttenuationRadius);
+
+		for (uint32 Face = 0; Face < 6; ++Face)
+		{
+			ID3D11DepthStencilView* FaceDSV = PointShadowMap->GetFaceDSV(Face);
+			if (!FaceDSV) continue;
+
+			RenderCommand::GetContext()->ClearDepthStencilView(FaceDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
+			RenderCommand::GetContext()->OMSetRenderTargets(0, nullptr, FaceDSV);
+			RenderCommand::SetViewport(0, 0, Resolution, Resolution);
+
+			FMatrix ViewMatrix = GetPointLightCubeViewMatrix(Face, ShadowInfo.LightPosition);
+			FViewConstants ViewConstants;
+			ViewConstants.ViewProjection = ViewMatrix * ProjMatrix;
+			ViewConstants.CameraPosition = ShadowInfo.LightPosition;
+			RenderCommand::UpdateBufferData(ShadowViewCB.get(), &ViewConstants);
+
+			DrawMeshes();
+		}
+
+		RenderCommand::GetContext()->OMSetRenderTargets(0, nullptr, nullptr);
+		RenderCommand::SetRasterizerState(ERasterizerState::SolidBack);
+		return;
+	}
+
 	FViewConstants ViewConstants;
 	ViewConstants.ViewProjection = ShadowInfo.LightViewProjection;
 	ViewConstants.CameraPosition = ShadowInfo.LightPosition;
 	RenderCommand::UpdateBufferData(ShadowViewCB.get(), &ViewConstants);
 
-	RenderCommand::BindPipelineState(PipelineState);
-	RenderCommand::BindConstantBuffer(0, ShadowViewCB.get(), EShaderBindFlagBits::Vertex);
-	RenderCommand::BindConstantBuffer(2, PerObjectCB.get(), EShaderBindFlagBits::Vertex);
-
-	// 불투명 스태틱 물체
-	for (const FStaticDrawGroup* Group : StaticGroups)
-	{
-		if (!Group || !Group->Mesh) continue;
-
-		RenderCommand::BindMesh(Group->Mesh, Group->LODIndex);
-
-		for (const FStaticDrawItem& Item : Group->Items)
-		{
-			if (!Item.Proxy) continue;
-
-			FPerObjectConstants ObjectConstants;
-			ObjectConstants.World = Item.Proxy->GetLocalToWorld();
-			ObjectConstants.NormalMatrix = Item.Proxy->GetNormalMatrix();
-			RenderCommand::UpdateBufferData(PerObjectCB.get(), &ObjectConstants);
-
-			RenderCommand::DrawIndexed(Item.IndexCount, Item.StartIndex);
-		}
-	}
-
-	// 동적/특수/반투명 물체
-	for (const FRenderPacket& Packet : RenderQueue)
-	{
-		if (!Packet.Mesh) continue;
-
-		// 반투명 머티리얼은 그림자X
-		if (Packet.Material && Packet.Material->BlendState != EBlendState::Opaque) continue;
-
-		RenderCommand::BindMesh(Packet.Mesh, Packet.LODIndex);
-
-		FPerObjectConstants ObjectConstants;
-		if (Packet.Proxy)
-		{
-			ObjectConstants.World = Packet.Proxy->GetLocalToWorld();
-			ObjectConstants.NormalMatrix = Packet.Proxy->GetNormalMatrix();
-		}
-		else
-		{
-			ObjectConstants.World = Packet.Model ? *Packet.Model : FMatrix::Identity;
-			ObjectConstants.NormalMatrix = ObjectConstants.World.Inverse().GetTransposed();
-		}
-		RenderCommand::UpdateBufferData(PerObjectCB.get(), &ObjectConstants);
-
-		uint32 IndexCount = Packet.IndexCount ? Packet.IndexCount : Packet.Mesh->GetIndexBuffer(Packet.LODIndex)->GetIndexCount();
-		RenderCommand::DrawIndexed(IndexCount, Packet.StartIndex);
-	}
+	DrawMeshes();
 
 	RenderCommand::SetRasterizerState(ERasterizerState::SolidBack);
 }
@@ -231,6 +275,20 @@ void FShadowRenderer::BindForShading(const FProjectedShadowInfo& ShadowInfo)
 		RenderCommand::BindShaderResource(ShadowInfo.ShaderResourceSlot, ShadowInfo.TargetShadowMap, EShaderBindFlagBits::Pixel);
 		RenderCommand::BindSamplerState(1, ESamplerState::ShadowMap, EShaderBindFlagBits::Pixel);
 	}
+	else if (ShadowInfo.ProjectionType == EShadowProjectionType::Point)
+	{
+		FPointShadowConstants Constants;
+		Constants.PointLightPosition = ShadowInfo.LightPosition;
+		Constants.PointShadowBias = ShadowInfo.ShadowBias;
+		Constants.PointShadowNormalBias = ShadowInfo.ShadowNormalBias;
+		Constants.PointAttenuationRadius = ShadowInfo.AttenuationRadius;
+		Constants.ShadowPointLightIndex = ShadowInfo.bCastShadow ? ShadowInfo.LightIndex : -1;
+		Constants.Padding = 0.0f;
+		RenderCommand::UpdateBufferData(ShadowInfo.ConstantBuffer, &Constants);
+		RenderCommand::BindConstantBuffer(ShadowInfo.ConstantBufferSlot, ShadowInfo.ConstantBuffer, EShaderBindFlagBits::Pixel);
+		RenderCommand::BindShaderResource(ShadowInfo.ShaderResourceSlot, ShadowInfo.TargetShadowMap, EShaderBindFlagBits::Pixel);
+		RenderCommand::BindSamplerState(1, ESamplerState::ShadowMap, EShaderBindFlagBits::Pixel);
+	}
 }
 
 void FShadowRenderer::UnbindForShading(const FProjectedShadowInfo& ShadowInfo)
@@ -256,6 +314,16 @@ void FShadowRenderer::DisableSpotShadow()
 	Constants.ShadowSpotLightIndex = -1;
 	RenderCommand::UpdateBufferData(SpotShadowConstantsCB.get(), &Constants);
 	RenderCommand::BindConstantBuffer(6, SpotShadowConstantsCB.get(), EShaderBindFlagBits::Pixel);
+}
+
+void FShadowRenderer::DisablePointShadow()
+{
+	if (!PointShadowConstantsCB) return;
+
+	FPointShadowConstants Constants;
+	Constants.ShadowPointLightIndex = -1;
+	RenderCommand::UpdateBufferData(PointShadowConstantsCB.get(), &Constants);
+	RenderCommand::BindConstantBuffer(7, PointShadowConstantsCB.get(), EShaderBindFlagBits::Pixel);
 }
 
 FProjectedShadowInfo FShadowRenderer::SetupDirectionalShadow(const FDirectionalLightSceneProxy& DirProxy, const FVector& FocusPosition)
@@ -386,4 +454,121 @@ FProjectedShadowInfo FShadowRenderer::SetupSpotShadow(const FSpotLightSceneProxy
 	Info.LightIndex = InLightIndex;
 
 	return Info;
+}
+
+FProjectedShadowInfo FShadowRenderer::SetupPointShadow(const FPointLightSceneProxy& PointProxy, int32 InLightIndex)
+{
+	FProjectedShadowInfo Info;
+	Info.ProjectionType = EShadowProjectionType::Point;
+	const FPointLightInfo& PointLight = PointProxy.GetInfo();
+	Info.LightPosition = PointLight.Position;
+
+	// 1. 카메라 뷰 행렬 (Point Light 기본 시선 방향: -Z 아래쪽)
+	FVector LightForward = FVector(0.0f, 0.0f, -1.0f);
+	FVector WorldUp = FVector(0.0f, 1.0f, 0.0f);
+	FVector Right = (WorldUp ^ LightForward).GetSafeNormal();
+	FVector Up = (LightForward ^ Right).GetSafeNormal();
+	FMatrix RotMatrix;
+	RotMatrix.SetIdentity();
+	RotMatrix.M[0][0] = LightForward.X; RotMatrix.M[0][1] = LightForward.Y; RotMatrix.M[0][2] = LightForward.Z;
+	RotMatrix.M[1][0] = Right.X;        RotMatrix.M[1][1] = Right.Y;        RotMatrix.M[1][2] = Right.Z;
+	RotMatrix.M[2][0] = Up.X;           RotMatrix.M[2][1] = Up.Y;           RotMatrix.M[2][2] = Up.Z;
+	FMatrix InvTranslation = FMatrix::MakeTranslation(Info.LightPosition * -1.0f);
+	FMatrix InvRotation = RotMatrix.GetTransposed();
+	Info.LightViewMatrix = InvTranslation * InvRotation;
+
+	// 2. 큐브 1면 기준 원근 투영 (FOV 90도 고정 = HalfFOV 45도, 종횡비 1.0)
+	const float HalfFOV = FMath::DegreesToRadians(45.0f);
+	const float YScale = 1.0f / std::tan(HalfFOV); // 1.0f
+	const float XScale = YScale;                  // 1.0f
+	const float NearZ = 0.1f;
+	const float FarZ = FMath::Max(PointLight.AttenuationRadius, NearZ + 1.0f);
+	const float ZScale = FarZ / (FarZ - NearZ);
+	const float ZOffset = -NearZ * FarZ / (FarZ - NearZ);
+	Info.LightProjMatrix = FMatrix(
+		0.0f, 0.0f, ZScale, 1.0f,
+		XScale, 0.0f, 0.0f, 0.0f,
+		0.0f, YScale, 0.0f, 0.0f,
+		0.0f, 0.0f, ZOffset, 0.0f
+	);
+	Info.LightViewProjection = Info.LightViewMatrix * Info.LightProjMatrix;
+
+	// 3. 그림자 파라미터 (바이어스 및 텍셀 크기)
+	Info.ShadowBias = PointProxy.GetShadowBias();
+	Info.ShadowNormalBias = PointProxy.GetShadowNormalBias();
+	const float FaceWidthAtRadius = 2.0f * PointLight.AttenuationRadius;
+	Info.ShadowTexelSize = (Resolution > 0) ? (FaceWidthAtRadius / static_cast<float>(Resolution)) : 1.0f;
+	Info.AttenuationRadius = PointLight.AttenuationRadius;
+	Info.bCastShadow = PointProxy.GetCastShadows();
+
+	// 4. 타깃 텍스처 및 슬롯 (Point 전용: t4, b7)
+	Info.TargetShadowMap = PointShadowMap.get();
+	Info.ShadowPassInfo = PointShadowPassInfo;
+	Info.ShaderResourceSlot = 4;
+	Info.ConstantBufferSlot = 7;
+	Info.ConstantBuffer = PointShadowConstantsCB.get();
+	Info.LightIndex = InLightIndex;
+	return Info;
+}
+
+FMatrix FShadowRenderer::GetPointLightCubeViewMatrix(uint32 Face, const FVector& LightPosition) const
+{
+	static const FVector Forwards[6] = {
+		FVector( 1.0f,  0.0f,  0.0f), // Face 0 (+X)
+		FVector(-1.0f,  0.0f,  0.0f), // Face 1 (-X)
+		FVector( 0.0f,  1.0f,  0.0f), // Face 2 (+Y)
+		FVector( 0.0f, -1.0f,  0.0f), // Face 3 (-Y)
+		FVector( 0.0f,  0.0f,  1.0f), // Face 4 (+Z)
+		FVector( 0.0f,  0.0f, -1.0f)  // Face 5 (-Z)
+	};
+
+	static const FVector Rights[6] = {
+		FVector( 0.0f,  0.0f, -1.0f), // Face 0 (+X)
+		FVector( 0.0f,  0.0f,  1.0f), // Face 1 (-X)
+		FVector( 1.0f,  0.0f,  0.0f), // Face 2 (+Y)
+		FVector( 1.0f,  0.0f,  0.0f), // Face 3 (-Y)
+		FVector( 1.0f,  0.0f,  0.0f), // Face 4 (+Z)
+		FVector(-1.0f,  0.0f,  0.0f)  // Face 5 (-Z)
+	};
+
+	static const FVector Ups[6] = {
+		FVector( 0.0f,  1.0f,  0.0f), // Face 0 (+X)
+		FVector( 0.0f,  1.0f,  0.0f), // Face 1 (-X)
+		FVector( 0.0f,  0.0f, -1.0f), // Face 2 (+Y)
+		FVector( 0.0f,  0.0f,  1.0f), // Face 3 (-Y)
+		FVector( 0.0f,  1.0f,  0.0f), // Face 4 (+Z)
+		FVector( 0.0f,  1.0f,  0.0f)  // Face 5 (-Z)
+	};
+
+	const uint32 SafeFace = FMath::Clamp(Face, 0u, 5u);
+	const FVector& Forward = Forwards[SafeFace];
+	const FVector& Right   = Rights[SafeFace];
+	const FVector& Up      = Ups[SafeFace];
+
+	FMatrix RotMatrix;
+	RotMatrix.SetIdentity();
+	RotMatrix.M[0][0] = Forward.X; RotMatrix.M[0][1] = Forward.Y; RotMatrix.M[0][2] = Forward.Z;
+	RotMatrix.M[1][0] = Right.X;   RotMatrix.M[1][1] = Right.Y;   RotMatrix.M[1][2] = Right.Z;
+	RotMatrix.M[2][0] = Up.X;      RotMatrix.M[2][1] = Up.Y;      RotMatrix.M[2][2] = Up.Z;
+
+	FMatrix InvTranslation = FMatrix::MakeTranslation(LightPosition * -1.0f);
+	FMatrix InvRotation = RotMatrix.GetTransposed();
+
+	return InvTranslation * InvRotation;
+}
+
+FMatrix FShadowRenderer::GetPointLightCubeProjMatrix(float AttenuationRadius) const
+{
+	const float NearZ = 0.1f;
+	const float FarZ = FMath::Max(AttenuationRadius, NearZ + 1.0f);
+
+	const float ZScale = FarZ / (FarZ - NearZ);
+	const float ZOffset = -NearZ * FarZ / (FarZ - NearZ);
+
+	return FMatrix(
+		0.0f, 0.0f, ZScale,  1.0f,
+		1.0f, 0.0f, 0.0f,    0.0f,
+		0.0f, 1.0f, 0.0f,    0.0f,
+		0.0f, 0.0f, ZOffset, 0.0f
+	);
 }

@@ -68,3 +68,61 @@ void FTextureCube::CreateViews(ID3D11Device* Device, const D3D11_TEXTURE2D_DESC&
 		}
 	}
 }
+
+
+FDepthTextureCube::FDepthTextureCube(ID3D11Device* Device, uint32 InResolution)
+{
+	Width = InResolution;
+	Height = InResolution;
+	Depth = 1;
+	Format = DXGI_FORMAT_R24G8_TYPELESS;
+	Dimension = ETextureDimension::TextureCube;
+
+	// 1. 큐브맵 텍스처 리소스 생성 (ArraySize = 6, TEXTURECUBE 플래그)
+	D3D11_TEXTURE2D_DESC Desc{};
+	Desc.Width = InResolution;
+	Desc.Height = InResolution;
+	Desc.MipLevels = 1;
+	Desc.ArraySize = FaceCount; // 6
+	Desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+	Desc.SampleDesc.Count = 1;
+	Desc.SampleDesc.Quality = 0;
+	Desc.Usage = D3D11_USAGE_DEFAULT;
+	Desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+	Desc.CPUAccessFlags = 0;
+	Desc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+	HRESULT hr = Device->CreateTexture2D(&Desc, nullptr, (ID3D11Texture2D**)Texture.GetAddressOf());
+	if (FAILED(hr))
+	{
+		HTR_LOG(Error, "[DepthTextureCube] CreateTexture2D failed (hr=0x{:08X})", (uint32)hr);
+		return;
+	}
+
+	// 2. 큐브 전체를 보는 SRV 생성 (셰이더의 TextureCube와 바인딩)
+	D3D11_SHADER_RESOURCE_VIEW_DESC SrvDesc{};
+	SrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+	SrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+	SrvDesc.TextureCube.MostDetailedMip = 0;
+	SrvDesc.TextureCube.MipLevels = 1;
+	hr = Device->CreateShaderResourceView(Texture.Get(), &SrvDesc, SRV.GetAddressOf());
+	if (FAILED(hr))
+	{
+		HTR_LOG(Error, "[DepthTextureCube] CreateShaderResourceView failed (hr=0x{:08X})", (uint32)hr);
+	}
+
+	// 3. 6개 면 슬라이스 각각에 대한 DSV 생성 (렌더링 타깃용)
+	for (uint32 Face = 0; Face < FaceCount; ++Face)
+	{
+		D3D11_DEPTH_STENCIL_VIEW_DESC DsvDesc{};
+		DsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		DsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+		DsvDesc.Texture2DArray.MipSlice = 0;
+		DsvDesc.Texture2DArray.FirstArraySlice = Face; // 슬라이스 0~5
+		DsvDesc.Texture2DArray.ArraySize = 1;
+		hr = Device->CreateDepthStencilView(Texture.Get(), &DsvDesc, FaceDSVs[Face].GetAddressOf());
+		if (FAILED(hr))
+		{
+			HTR_LOG(Error, "[DepthTextureCube] CreateDepthStencilView failed (face={}, hr=0x{:08X})", Face, (uint32)hr);
+		}
+	}
+}

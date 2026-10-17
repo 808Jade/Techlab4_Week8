@@ -7,9 +7,11 @@
 #include "RenderPacket.h"
 #include "LightInfo.h"
 #include "Renderer.h"
+#include "TextureCube.h"
 
 class FDirectionalLightSceneProxy;
 class FSpotLightSceneProxy;
+class FPointLightSceneProxy;
 
 struct FDirectionalShadowConstants
 {
@@ -31,6 +33,17 @@ struct FSpotShadowConstants
 };
 static_assert(sizeof(FSpotShadowConstants) == 80);
 
+struct FPointShadowConstants
+{
+	FVector PointLightPosition;        
+	float PointShadowBias = 0.001f;    
+	float PointShadowNormalBias = 1.0f;
+	float PointAttenuationRadius;      
+	int32 ShadowPointLightIndex = -1;
+	float Padding;
+};
+static_assert(sizeof(FPointShadowConstants) == 32);
+
 enum class EShadowProjectionType : uint8
 {
 	Directional, 
@@ -50,11 +63,12 @@ struct FProjectedShadowInfo
 	float ShadowBias = 0.0005f;
 	float ShadowNormalBias = 1.0f;
 	float ShadowTexelSize = 1.0f;
+	float AttenuationRadius = 0.0f;
 	bool bCastShadow = true;
 	// 3. 타깃 텍스처 및 패스 정보
-	FTexture2D* TargetShadowMap = nullptr;
+	FTexture* TargetShadowMap = nullptr;
 	FRenderingInfo ShadowPassInfo;
-	// 4. 셰이더 바인딩 슬롯 (Directional: t2/b5, Spot: t3/b6)
+	// 4. 셰이더 바인딩 슬롯 (Directional: t2/b5, Spot: t3/b6, Point: t4/b7)
 	uint32 ShaderResourceSlot = 2;
 	uint32 ConstantBufferSlot = 5;
 	FConstantBuffer* ConstantBuffer = nullptr;
@@ -78,13 +92,20 @@ public:
 
 	void DisableDirectionalShadow();
 	void DisableSpotShadow();
+	void DisablePointShadow();
 
 	FProjectedShadowInfo SetupDirectionalShadow(const FDirectionalLightSceneProxy& DirProxy, const FVector& FocusPosition);
 	FProjectedShadowInfo SetupSpotShadow(const FSpotLightSceneProxy& SpotProxy, int32 InLightIndex = 0);
+	FProjectedShadowInfo SetupPointShadow(const FPointLightSceneProxy& PointProxy, int32 InLightIndex = 0);
+
+	FMatrix GetPointLightCubeViewMatrix(uint32 Face, const FVector& LightPosition) const;
+	FMatrix GetPointLightCubeProjMatrix(float AttenuationRadius) const;
 
 	FTexture2D* GetDirectionalShadowMap() const { return DirectionalShadowMap.get(); }
 	FTexture2D* GetShadowMap() const { return DirectionalShadowMap.get(); }
 	FTexture2D* GetSpotShadowMap() const { return SpotShadowMap.get(); }
+	FDepthTextureCube* GetPointShadowMap() const { return PointShadowMap.get(); }
+
 	const FMatrix& GetLightViewProjection() const { return LightViewProjection; }
 	const FMatrix& GetLightView() const { return LightViewMatrix; }
 	const FMatrix& GetLightProj() const { return LightProjMatrix; }
@@ -106,6 +127,7 @@ public:
 
 	FRenderingInfo GetDirectionalShadowPassInfo() const { return DirectionalShadowPassInfo; }
 	FRenderingInfo GetSpotShadowPassInfo() const { return SpotShadowPassInfo; }
+	FRenderingInfo GetPointShadowPassInfo() const { return PointShadowPassInfo; }
 
 private:
 	void UpdateLightMatrix(const FVector& LightDirection, const FVector& FocusPosition);
@@ -133,10 +155,14 @@ private:
 	TUniquePtr<FTexture2D> SpotShadowMap;
 	FRenderingInfo SpotShadowPassInfo;
 
+	TUniquePtr<FDepthTextureCube> PointShadowMap;
+	FRenderingInfo PointShadowPassInfo;
+
 	FShaderProgram* ShadowShader = nullptr;
 	TUniquePtr<FConstantBuffer> ShadowViewCB;
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> DirectionalShadowConstantsCB;
 	TUniquePtr<FConstantBuffer> SpotShadowConstantsCB;
+	TUniquePtr<FConstantBuffer> PointShadowConstantsCB;
 };
 

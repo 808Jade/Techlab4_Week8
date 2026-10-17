@@ -94,12 +94,21 @@ public:
 		const UPointLightComponent* Light = static_cast<const UPointLightComponent*>(Component);
 		Info = Light->GetPointLightInfo();
 		bVisible = Light->IsLightVisible();
+		bCastShadows = Light->GetCastShadows();
+		ShadowBias = Light->GetShadowBias();
+		ShadowNormalBias = Light->GetShadowNormalBias();
 	}
 
 	const FPointLightInfo& GetInfo() const { return Info; }
+	bool GetCastShadows() const { return bCastShadows; }
+	float GetShadowBias() const { return ShadowBias; }
+	float GetShadowNormalBias() const { return ShadowNormalBias; }
 
 private:
 	FPointLightInfo Info;
+	bool bCastShadows = false;
+	float ShadowBias = 0.001f;
+	float ShadowNormalBias = 1.0f;
 };
 
 class FSpotLightSceneProxy final : public FLightSceneProxy

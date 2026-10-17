@@ -181,6 +181,29 @@ void RenderCommand::Unmap(FBuffer* InBuffer)
 	RenderDevice->GetContext()->Unmap(InBuffer->GetBuffer(), 0);
 }
 
+void RenderCommand::BindShaderResource(uint32 Slot, FTexture* Texture, EShaderBindFlagBits FlagBits, bool bRawData)
+{
+	ID3D11ShaderResourceView* SRV = nullptr;
+	if (Texture)
+	{
+		SRV = (ColorWorkflow::bLinear && !bRawData) ? Texture->GetSRV() : Texture->GetRawSRV();
+	}
+	if (HasFlag(FlagBits, EShaderBindFlagBits::Vertex))
+	{
+		RenderDevice->GetContext()->VSSetShaderResources(Slot, 1, &SRV);
+	}
+
+	if (HasFlag(FlagBits, EShaderBindFlagBits::Pixel))
+	{
+		RenderDevice->GetContext()->PSSetShaderResources(Slot, 1, &SRV);
+	}
+
+	if (HasFlag(FlagBits, EShaderBindFlagBits::Compute))
+	{
+		RenderDevice->GetContext()->CSSetShaderResources(Slot, 1, &SRV);
+	}
+}
+
 void RenderCommand::BindShaderResource(uint32 Slot, FTexture2D* Texture2D, EShaderBindFlagBits FlagBits, bool bRawData)
 {
 	ID3D11ShaderResourceView* SRV = nullptr;
