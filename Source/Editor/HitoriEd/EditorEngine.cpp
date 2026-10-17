@@ -45,6 +45,7 @@ namespace
 }
 
 #include "Core/SplashScreen.h"
+#include <Engine/LightSceneProxy.h>
 
 FEngineConfig UEditorEngine::GetConfig() const
 {
@@ -117,6 +118,9 @@ bool UEditorEngine::Init()
 
 	DepthViewRenderer = MakeUnique<FDepthViewRenderer>();
 	DepthViewRenderer->Init();
+
+	LightDepthRenderer = MakeUnique<FLightDepthRenderer>();
+	LightDepthRenderer->Init();
 
 
 	// 필요한 Panel들 추가후 raw pointer 반환(소유권 = EditorUI)
@@ -851,6 +855,29 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
+void UEditorEngine::ShadowPass(const FRenderQueue &RenderTargets)
+{
+	for (auto light : EditorWorld->GetScene().Lights) {
+		if (light->GetLightType() == ELightType::Directional) {
+			ULightComponent * lightComponent = Cast<ULightComponent>(light->GetComponent());
+			if (lightComponent == nullptr) continue;
+
+			lightComponent->EnsureShadowMap();
+			lightComponent->UpdateLightCamera();
+
+			FRenderingInfo RenderInfo;
+			RenderInfo.DepthStencil.Texture = lightComponent->GetLightResource();
+			RenderInfo.ViewportSetting.Width = lightComponent->GetShadowResolution();
+			RenderInfo.ViewportSetting.Height = lightComponent->GetShadowResolution();
+
+			RenderCommand::BeginRenderPass(RenderInfo);
+			LightDepthRenderer->OnRender(lightComponent->GetCamera()->GetViewProjectionMatrix(), RenderTargets);
+			RenderCommand::EndRenderPass(RenderInfo);
+
+		}
+	}
+}
+
 // 입력 View의 Ray와 피킹으로 Gizmo·공유 선택을 갱신한다.
 void UEditorEngine::UpdateGizmoAndPicking()
 {
@@ -913,6 +940,8 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	ViewWorld.GetScene().BuildLightingConstants(Lighting);
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
+
+	ShadowPass(RenderQueue);
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);

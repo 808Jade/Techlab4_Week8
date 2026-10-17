@@ -38,6 +38,7 @@
 //Temp
 #include "Text/Font.h"
 #include "Text/TextRenderer.h"
+#include <Render/LightDepthRenderer.h>
 
 class UEditorEngine : public UEngine
 {
@@ -115,7 +116,8 @@ private:
 	void RenderFXAAPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo);
 	//Depth Pass
 	void RenderDepthPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo, const FMatrix& ViewProjection, const FVector& ViewCameraLocation, const FVector& ViewCameraForward);
-
+	// Light Depth Pass
+	void ShadowPass(const FRenderQueue& RenderTargets);
 
 
 	FWorldContext& GetEditorWorldContext();
@@ -146,6 +148,7 @@ private:
 	TUniquePtr<FFXAARenderer> FXAARenderer;
 	TUniquePtr<FGammaEncodeRenderer> GammaEncodeRenderer;
 	TUniquePtr<FDepthViewRenderer> DepthViewRenderer;
+	TUniquePtr<FLightDepthRenderer> LightDepthRenderer;
 
 	UFont* SystemFont;
 

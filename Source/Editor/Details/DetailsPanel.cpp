@@ -18,6 +18,7 @@
 #include "GameFramework/Actor.h"
 #include "Core/EngineLog.h"
 #include <algorithm>
+#include <Component/LightComponent.h>
 
 
 namespace
@@ -1005,6 +1006,14 @@ void FDetailsPanel::OnRender()
 			{
 				DrawMaterialSlots(MeshComponent);
 			}
+			if (ULightComponent* LightComponent = Cast<ULightComponent>(TargetComponent)) {
+				if (LightComponent->GetLightResource()) {
+					ImGui::Image(
+						LightComponent->GetLightResource()->GetRawSRV(),
+						{ 512.0f, 512.0f });
+				}
+			}
+
 			ImGui::PopID();
 
 			if (PendingDeleteComponent)
