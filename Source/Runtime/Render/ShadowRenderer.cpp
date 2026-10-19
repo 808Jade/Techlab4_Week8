@@ -54,13 +54,14 @@ FMatrix FShadowRenderer::BuildDirectionalShadowVP(const FVector& CameraPosition,
 
 	const FVector Center = CameraPosition + CameraForward * (ShadowDistance * 0.5f);
 
+	// center를 텍셀 크기에 맞게 보정
 	const float TexelSize = (Radius * 2.0f) / static_cast<float>(Resolution);
 	const float CenterF = FVector::Dot(Center, Forward);
-	const float CneterR = std::floor(FVector::Dot(Center, Right) / TexelSize) * TexelSize;
+	const float CenterR = std::floor(FVector::Dot(Center, Right) / TexelSize) * TexelSize;
 	const float CenterU = std::floor(FVector::Dot(Center, Up) / TexelSize) * TexelSize;
-	const FVector SnappedCenter = Forward * CenterF + Right * Center + Up * CenterU;
+	const FVector SnappedCenter = Forward * CenterF + Right * CenterR + Up * CenterU;
 
-	const FVector Eye = Center - Forward * Radius;
+	const FVector Eye = SnappedCenter - Forward * Radius;
 	const FMatrix Rotation(
 		FVector4(Forward.X, Forward.Y, Forward.Z, 0.0f),
 		FVector4(Right.X, Right.Y, Right.Z, 0.0f),
