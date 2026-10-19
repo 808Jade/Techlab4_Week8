@@ -143,6 +143,15 @@ cbuffer TileLightConstants : register(b4)
     uint3 TileCullingPadding;
 };
 
+cbuffer ShadowConstants : register(b5)
+{
+    float4x4 LightViewProj;
+    float ShadowBias;
+    float ShadowSlopeBias;
+    uint3 bHasShadow;
+    float ShadowPadding;
+}
+
 StructuredBuffer<FPointLightInfo> StructuredPointLights : register(t8);
 StructuredBuffer<FSpotLightInfo> StructuredSpotLights : register(t9);
 StructuredBuffer<uint> PointTileList : register(t10);
@@ -154,7 +163,11 @@ Texture2D AlbedoTexture : register(t0);
 Texture2D NormalTexture : register(t1);
 #endif
 
+Texture2D<float> DirectionalShadowMap : register(t2);
+
 SamplerState AlbedoSampler : register(s0);
+
+SamplerState ShadowSampler : register(s1);
 
 float3 DiffuseTerm(float3 Il, float3 N, float3 L)
 {
@@ -263,6 +276,34 @@ void ComputeLighting(float3 N, float3 WorldPosition, float3 V, float n, out floa
     }
 }
 
+float ComputeShadow(float3 WorldPosition, float3 NormalDir, float3 LightDir)
+{
+    // 월드좌표->광원공간의 uv로 변환
+    if (bHasShadow == false)
+        return 1.0f;
+    
+    float4 inputMatrix = float4(WorldPosition, 1.0f);
+    float4 LightSpacePosition = mul(inputMatrix, LightViewProj);
+    float4 ndcLight = LightSpacePosition / LightSpacePosition.w;
+    
+    float u = ndcLight.x * 0.5f + 0.5f;
+    float v = ndcLight.y * (-0.5f) + 0.5f;
+
+    if (u < 0 || u > 1 || v < 0 || v > 1 || ndcLight.z < 0 || ndcLight.z > 1)
+        return 1.0f; // 깊이맵 정보 없음 = 그림자 없다!
+    
+    // 그림자 텍스처 처리 
+    float TextureColor = DirectionalShadowMap.Sample(ShadowSampler, float2(u, v));
+    if (TextureColor < ndcLight.z - ShadowBias - ShadowSlopeBias * (1 - saturate(dot(NormalDir, LightDir)))) // 내가 더 멀기 때문에 그림자
+    {
+        return 0.7f;
+    }
+    else
+    {
+        return 1.0f;
+    }
+    
+}
 
 void ComputeTiledLighting(float3 N,
 #if USE_NORMAL_MAP
@@ -282,7 +323,10 @@ float3 WorldPosition, float3 V, float n, float2 PixelPosition, out float3 Diffus
 #else
         float GeoFactor = 1.0f;
 #endif
+        Il *= ComputeShadow(WorldPosition, N, L);
         AccumulateLight(Il * GeoFactor, N, L, V, n, DiffuseLight, SpecularLight);
+        
+
     }
 
     uint2 TileCoord = min(uint2(PixelPosition) / 16u, uint2(TileCountX - 1u, TileCountY - 1u));
