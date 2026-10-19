@@ -855,7 +855,7 @@ void UEditorEngine::RenderDepthPass(const int32 ViewIndex, const FRenderingInfo&
 	RenderCommand::EndRenderPass(PassInfo);
 }
 
-void UEditorEngine::ShadowPass()
+ULightComponent* UEditorEngine::ShadowPass()
 {
 	FRenderQueue ShadowQueue;
 	EditorWorld->GatherRenderPackets(ShadowQueue);
@@ -877,9 +877,10 @@ void UEditorEngine::ShadowPass()
 
 			LightDepthRenderer->OnRender(lightComponent->GetCamera()->GetViewProjectionMatrix(), ShadowQueue);
 			RenderCommand::EndRenderPass(RenderInfo);
-
+			return lightComponent;
 		}
 	}
+
 }
 
 // 입력 View의 Ray와 피킹으로 Gizmo·공유 선택을 갱신한다.
@@ -941,11 +942,19 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 	TArray<FPointLightInfo> PointLights;
 	TArray<FSpotLightInfo> SpotLights;
 
+	FShadowConstants Shadowing;
+	FTexture2D* ShadowTexture;
+	ULightComponent* ShadowComponent;
+
 	ViewWorld.GetScene().BuildLightingConstants(Lighting);
 	ViewWorld.GetScene().BuildStructuredLight(PointLights, SpotLights);
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
-	ShadowPass();
+	ShadowComponent = ShadowPass();
+	if (ShadowComponent != nullptr) {
+		Shadowing.LightViewProj = ShadowComponent->GetCamera()->GetViewProjectionMatrix();
+	}
+	Renderer->SetShadow(Shadowing, ShadowTexture);
 
 	// 1. 불투명·반투명 Pass (Linear 씬 컬러)
 	RenderOpaquePass(ViewIndex, SceneRenderingInfo, ViewProjection, ViewCameraLocation, ViewCameraForward, RenderQueue, Lighting.Directional);

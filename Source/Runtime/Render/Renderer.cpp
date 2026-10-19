@@ -72,6 +72,7 @@ bool FRenderer::Init()
 	LightingCB = RenderCommand::CreateConstantBuffer(sizeof(FLightingConstants));
 	FLightingConstants LightingConstant{};
 	RenderCommand::UpdateBufferData(LightingCB.get(), &LightingConstant);
+	ShadowCB = RenderCommand::CreateConstantBuffer(sizeof(FShadowConstants));;
 
 	TileLightCulling.Init();
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
@@ -481,6 +482,18 @@ void FRenderer::SetLighting(const FLightingConstants& GlobalLights,
 	RenderCommand::UpdateBufferData(LightingCB.get(), &GlobalLights);
 	LocalLight.UploadLights(PointLights, SpotLights);
 
+}
+
+
+void FRenderer::SetShadow(const FShadowConstants& constant, FTexture2D * ShadowTexture) {
+	RenderCommand::UnbindShaderResource(2, EShaderBindFlagBits::Pixel);
+	RenderCommand::UpdateBufferData(ShadowCB.get(), &constant);
+	
+
+	RenderCommand::BindConstantBuffer(5, ShadowCB.get(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	if (ShadowTexture == nullptr) return;
+	RenderCommand::BindShaderResource(2, ShadowTexture, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindSamplerState(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
 }
 
 // Material마다 Shader/Texture/Sampler/State 꽂기

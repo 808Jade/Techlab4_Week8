@@ -50,6 +50,14 @@ struct FLightingConstants
 	uint32 Padding[2] = {};
 };
 
+struct FShadowConstants {
+	FMatrix LightViewProj;
+	float ShadowBias;
+	float ShadowSlopeBias;
+	uint32 bHasShadow;
+	float ShadowPadding;
+};
+
 static_assert(sizeof(FAmbientLightInfo) == 16);
 static_assert(sizeof(FDirectionalLightInfo) == 32);
 static_assert(sizeof(FPointLightInfo) == 32);

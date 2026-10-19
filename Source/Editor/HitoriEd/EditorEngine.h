@@ -117,7 +117,7 @@ private:
 	//Depth Pass
 	void RenderDepthPass(const int32 ViewIndex, const FRenderingInfo& ViewRenderingInfo, const FMatrix& ViewProjection, const FVector& ViewCameraLocation, const FVector& ViewCameraForward);
 	// Light Depth Pass
-	void ShadowPass();
+	ULightComponent* ShadowPass();
 
 
 	FWorldContext& GetEditorWorldContext();
