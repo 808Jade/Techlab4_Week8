@@ -759,26 +759,34 @@ void FShadowMapManager::BuildAtlas(TArray<FShadowInfo>& ShadowInfos)
         while (Step < AtlasResolution)
         {
             const uint32 ParentSize = Step * 2;
+            // 오른쪽 여부 판단
             const bool bRight = CurrentX % ParentSize >= Step;
+
+            // 아래 여부 판단
             const bool bBottom = CurrentY % ParentSize >= Step;
 
+            // 지금 왼쪽이면 (오른쪽이 아니면) x 한칸(현재 섀도우 맵)만큼 증가
             if (!bRight)
             {
                 CurrentX += Step;
                 break;
             }
+
+            // 지금 위면 (아래가 아니면) y 한칸만큼 증가, x 한칸만큼 감소
             if (!bBottom)
-            {
+            {   // 이 조건을 통과하면 사실 오른쪽 위임
                 CurrentX -= Step;
                 CurrentY += Step;
                 break;
             }
 
+            // 여기까지 왔으면 오른쪽 아래 -> 부모의 다음z순서로 이동
             CurrentX -= Step;
             CurrentY -= Step;
             Step = ParentSize;
         }
 
+        // 
         if (Step >= AtlasResolution)
         {
             ++CurrentAtlasIndex;
