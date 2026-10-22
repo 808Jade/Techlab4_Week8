@@ -22,6 +22,19 @@ enum class EGizmoSpace
 class FGizmo   // 상태 + 로직
 {
 public:
+	// 축 번호: 0~2 = X/Y/Z 축, 3~5 = YZ/ZX/XY 평면(번호 - 3이 평면의 법선 축), 6 = 화면 축(중앙 구·바깥 링)
+	static constexpr int AxisPlaneYZ = 3;
+	static constexpr int AxisPlaneZX = 4;
+	static constexpr int AxisPlaneXY = 5;
+	static constexpr int AxisScreen = 6;
+	static bool IsPlaneAxis(int Axis) { return Axis >= AxisPlaneYZ && Axis <= AxisPlaneXY; }
+
+	// 평면 핸들 사각형이 두 축을 따라 차지하는 구간. 축 길이와 같은 기즈모 단위다.
+	static constexpr float PlaneHandleMin = 0.3f;
+	static constexpr float PlaneHandleMax = 0.6f;
+	// 평면 핸들을 이루는 두 축 방향. 법선 축의 다음 두 축 순서(YZ, ZX, XY)다.
+	void GetPlaneHandleAxes(int PlaneAxis, FVector& OutU, FVector& OutV) const;
+
 	// Gizmo 대상 설정
 	void SetTarget(USceneComponent* InTarget, bool InbUseActorBounds = false)
 	{ 
@@ -49,6 +62,8 @@ public:
 
 	int PickLinearAxis(const FVector2& MousePos, const FMatrix& ViewProj, int ScreenW, int ScreenH);
 	int PickRotationAxis(const FVector2& MousePos, const FMatrix& ViewProj, int ScreenW, int ScreenH);
+	// 화면에 투영한 평면 핸들 사각형 안에 마우스가 있는 평면을 고른다. 없으면 -1이다.
+	int PickPlaneAxis(const FVector2& MousePos, const FMatrix& ViewProj, int ScreenW, int ScreenH) const;
 
 
 	void BeginDrag(int Axis, const FRay& MouseRay, const FVector2& MousePos);

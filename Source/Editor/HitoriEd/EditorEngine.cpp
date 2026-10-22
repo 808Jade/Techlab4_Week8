@@ -232,6 +232,9 @@ bool UEditorEngine::Init()
 	const ImVec4 Green = { 0.40f, 0.80f, 0.30f, 1.0f };
 
 	Save = { "Save",   "Save Current Scene",UAssetManager::Get().LoadTexture(EditorResourcePaths::ToolbarSaveIcon),  White, { EKeyCode::S, true } };
+	// 저장한 적 없는 씬이면 SaveScene이 파일 대화상자를 띄운다.
+	Save.CanExecute = [this]() { return !IsPlaying(); };
+	Save.Execute = [this]() { SaveCurrentScene(); };
 
 	Play = { "Play",   "Play World",        UAssetManager::Get().LoadTexture(EditorResourcePaths::ToolbarPlayIcon),  Green, { EKeyCode::P, false, true } };
 
@@ -275,6 +278,10 @@ bool UEditorEngine::Init()
 	Duplicate = { "Duplicate", "Duplicate Selected Actors", nullptr, White, { EKeyCode::D, true } };
 	Duplicate.CanExecute = [this]() { return !IsPlaying() && !Selection.IsEmpty(); };
 	Duplicate.Execute = [this]() { CopySelectedActors(); PasteCopiedActors(); };
+
+	FocusSelection = { "Focus", "Focus Selected Actors", nullptr, White, { EKeyCode::F } };
+	FocusSelection.CanExecute = [this]() { return !Selection.IsEmpty(); };
+	FocusSelection.Execute = [this]() { FocusOnSelection(); };
 	EditorUI->GetToolbar()->SetPlayModeBinding(
 		[this]() { return PlayMode; },
 		[this](EPlayModeType Mode) { PlayMode = Mode; },
@@ -340,7 +347,7 @@ void UEditorEngine::BeginFrame(const float DeltaTime)
 	if (!ImGui::GetIO().WantTextInput && FInputSystem::IsKeyPressed(EKeyCode::Delete))
 		DeleteSelectedActors();
 
-	EditorCommandUI::ProcessShortcuts({ &Copy, &Paste, &Duplicate });
+	EditorCommandUI::ProcessShortcuts({ &Save, &Copy, &Paste, &Duplicate, &FocusSelection });
 }
 
 // 패널의 Layout·Preset 요청과 입력을 Adapter에 반영한다.
@@ -1026,6 +1033,40 @@ void UEditorEngine::UpdateSelectionGizmoDrag()
 				FVector(StartScale.X * ScaleRatio.X, StartScale.Y * ScaleRatio.Y, StartScale.Z * ScaleRatio.Z));
 		}
 	}
+}
+
+// 선택된 액터들의 경계를 모두 감싸는 구를 마지막으로 편집한 View에 맞춘다.
+void UEditorEngine::FocusOnSelection()
+{
+	FBox Bounds;
+	bool bHasBounds = false;
+	for (AActor* Actor : Selection.GetActors())
+	{
+		// 메시가 없는 액터(라이트 등)는 위치만 작은 상자로 넣는다.
+		FBox ActorBounds;
+		if (!Actor->TryGetActorBounds(ActorBounds))
+		{
+			const FVector Location = Actor->GetActorLocation();
+			ActorBounds.Min = Location;
+			ActorBounds.Max = Location;
+		}
+
+		if (!bHasBounds)
+		{
+			Bounds = ActorBounds;
+			bHasBounds = true;
+			continue;
+		}
+		Bounds.Min = FVector(std::min(Bounds.Min.X, ActorBounds.Min.X), std::min(Bounds.Min.Y, ActorBounds.Min.Y), std::min(Bounds.Min.Z, ActorBounds.Min.Z));
+		Bounds.Max = FVector(std::max(Bounds.Max.X, ActorBounds.Max.X), std::max(Bounds.Max.Y, ActorBounds.Max.Y), std::max(Bounds.Max.Z, ActorBounds.Max.Z));
+	}
+	if (!bHasBounds)
+		return;
+
+	const FVector Center = (Bounds.Min + Bounds.Max) * 0.5f;
+	const FVector HalfExtent = (Bounds.Max - Bounds.Min) * 0.5f;
+	const float Radius = std::sqrt(HalfExtent.X * HalfExtent.X + HalfExtent.Y * HalfExtent.Y + HalfExtent.Z * HalfExtent.Z);
+	MultipleViewportsAdapter.FocusViewOn(MultipleViewportsAdapter.GetEditorViewIndex(), Center, Radius);
 }
 
 void UEditorEngine::CopySelectedActors()

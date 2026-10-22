@@ -31,6 +31,9 @@ constexpr float MaximumRotationDegreesPerFrame = 45.0f;
 constexpr float MouseWheelDeltaPerStep = 120.0f;
 constexpr float OrthographicZoomFactorPerStep = 0.9f;
 constexpr float CameraMoveSpeedFactorPerStep = 1.25f;
+// F 포커스에서 대상이 화면 가장자리에 붙지 않도록 남기는 여유 배율과 최소 반지름
+constexpr float FocusMargin = 1.2f;
+constexpr float MinimumFocusRadius = 0.1f;
 constexpr float MinimumOrthographicWidth = 0.01f;
 // 양방향 깊이 보정 뒤에도 절두체 평면 법선이 Core epsilon(1e-6)보다 충분히 크게 유지되게 한다.
 // 정사각 View의 최악 조건에서 깊이 계수는 약 1 / (4 * sqrt(2) * Span)이다.
@@ -239,6 +242,36 @@ void FMultipleViewportsAdapter::SetViewCameraOverride(const int32 ViewIndex, con
     Camera.Projection = Projection;
     ConstrainOrthographicWidth(Camera.Projection, ViewRects[ViewIndex]);
     bHasCameraOverride[ViewIndex] = true;
+}
+
+// 원근은 세로·가로 FOV 중 좁은 쪽에 구가 들어오는 거리로, 직교는 구를 담는 폭으로 맞춘다.
+bool FMultipleViewportsAdapter::FocusViewOn(const int32 ViewIndex, const FVector& Center, const float Radius)
+{
+    if (ViewIndex < 0 || ViewIndex >= 4 || bHasCameraOverride[ViewIndex])
+        return false;
+
+    FViewCamera& Camera = Views.Cameras[ViewIndex];
+    const FVector Forward = NormalizedOrZero(CameraForward(Camera.Transform.Rotation));
+    const float FocusRadius = std::max(Radius, MinimumFocusRadius) * FocusMargin;
+    const FRect& Rect = ViewRects[ViewIndex];
+    const float AspectRatio = Rect.Width > 0.0f && Rect.Height > 0.0f ? Rect.Width / Rect.Height : 1.0f;
+
+    if (Camera.Projection.Mode == EProjectionMode::Orthographic)
+    {
+        // 폭과 높이(폭 / 비율) 모두 지름 이상이 되도록 한다. 직교는 거리와 무관하게 크기가 같다.
+        Camera.Projection.OrthoWidth = 2.0f * FocusRadius * std::max(1.0f, AspectRatio);
+        ConstrainOrthographicWidth(Camera.Projection, Rect);
+        Camera.Transform.Location = Center - Forward * (2.0f * FocusRadius);
+        return true;
+    }
+
+    // FovDegrees는 세로 FOV다. 가로가 더 좁은 세로로 긴 View는 가로 FOV를 쓴다.
+    const float HalfVertical = Camera.Projection.FovDegrees * Pi / 360.0f;
+    const float HalfHorizontal = std::atan(std::tan(HalfVertical) * AspectRatio);
+    const float HalfFov = std::min(HalfVertical, HalfHorizontal);
+    const float Distance = std::max(FocusRadius / std::sin(HalfFov), Camera.Projection.NearClip + FocusRadius);
+    Camera.Transform.Location = Center - Forward * Distance;
+    return true;
 }
 
 // Override를 해제해 저장 카메라로 되돌린다.

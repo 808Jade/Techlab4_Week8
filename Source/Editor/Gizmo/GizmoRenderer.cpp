@@ -22,6 +22,7 @@ bool FGizmoRenderer::Init(FRenderer* InRenderer)
 	RotationMesh = UAssetManager::GetAssetByPath<UStaticMesh>("Ring");
 	ScaleMesh = UAssetManager::GetAssetByPath<UStaticMesh>("ScaleBar");
 	SphereMesh = UAssetManager::GetAssetByPath<UStaticMesh>("GizmoSphere");
+	PlaneHandleMesh = UAssetManager::GetAssetByPath<UStaticMesh>("Cube");
 
 	CB = RenderCommand::CreateConstantBuffer(sizeof(FGizmoData));
 
@@ -29,9 +30,10 @@ bool FGizmoRenderer::Init(FRenderer* InRenderer)
 	AxisDataArray.Add({ FRotator(0.0f, 0.0f, -90.0f) ,FVector4(0.0f, 1.0f, 0.0f, 1.0f) });
 	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 0.4f, 1.0f, 1.0f) });
 
-	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 0.0f, 1.0f, 1.0f) });
-	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 0.0f, 1.0f, 1.0f) });
-	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 0.0f, 1.0f, 1.0f) });
+	// 평면 핸들(YZ, ZX, XY)은 법선 축의 색을 쓴다. 회전 값은 쓰지 않는다.
+	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(1.0f, 0.0f, 0.0f, 1.0f) });
+	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 1.0f, 0.0f, 1.0f) });
+	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(0.0f, 0.4f, 1.0f, 1.0f) });
 	AxisDataArray.Add({ FRotator(0.0f, 0.0f, 0.0f) ,FVector4(1.0f, 1.0f, 1.0f, 1.0f) }); // ScreenAxis
 
 	Shader = FRenderResourceManager::GetShaderProgram("Resources/Shader/GizmoShader.hlsl");
@@ -105,6 +107,35 @@ void FGizmoRenderer::OnRender(
 
 	if (Gizmo.GetMode() != EGizmoMode::Rotation)
 	{
+		// 평면 핸들: 두 축 사이의 작은 사각형. 얇은 Cube라 평면의 앞뒤 어느 쪽에서 봐도 보인다.
+		const float HandleSize = (FGizmo::PlaneHandleMax - FGizmo::PlaneHandleMin) * GizmoScale;
+		const float HandleCenter = (FGizmo::PlaneHandleMin + FGizmo::PlaneHandleMax) * 0.5f * GizmoScale;
+		constexpr float HandleThicknessRatio = 0.05f;
+		for (int PlaneAxis = FGizmo::AxisPlaneYZ; PlaneAxis <= FGizmo::AxisPlaneXY; ++PlaneAxis)
+		{
+			FVector U, V;
+			Gizmo.GetPlaneHandleAxes(PlaneAxis, U, V);
+			const FVector N = Gizmo.GetAxisDirection(PlaneAxis - FGizmo::AxisPlaneYZ);
+			const FVector Center = GizmoLocation + (U + V) * HandleCenter;
+
+			// 행 벡터 규약: 행 0~2가 로컬 X·Y·Z 축(크기 포함), 행 3이 위치다.
+			FMatrix World = FMatrix::Identity;
+			const FVector Rows[3] = { U * HandleSize, V * HandleSize, N * (HandleSize * HandleThicknessRatio) };
+			for (int Row = 0; Row < 3; ++Row)
+			{
+				World.M[Row][0] = Rows[Row].X; World.M[Row][1] = Rows[Row].Y; World.M[Row][2] = Rows[Row].Z;
+			}
+			World.M[3][0] = Center.X; World.M[3][1] = Center.Y; World.M[3][2] = Center.Z;
+
+			FGizmoData PlaneData{};
+			PlaneData.World = World;
+			PlaneData.ViewProj = ViewProj;
+			PlaneData.Color = (PlaneAxis == HoveredAxis)
+				? FVector4(1.0f, 1.0f, 0.0f, 1.0f)     // hover 시 노랑
+				: AxisDataArray[PlaneAxis].Color;
+			DrawMesh(PlaneHandleMesh, PlaneData);
+		}
+
 		// 중앙 구
 		Transform.Rotation = FRotator(0.0f, 0.0f, 0.0f);
 

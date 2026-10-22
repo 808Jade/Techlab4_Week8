@@ -50,6 +50,9 @@ public:
     // 저장 카메라는 그대로 두고 렌더·컬링·피킹에만 외부 카메라(PIE 게임 카메라 등)를 쓴다.
     // Forward는 정규화되어 있어야 하며 Roll은 버린다.
     void SetViewCameraOverride(int32 ViewIndex, const FVector& Location, const FVector& Forward, const FCameraProjection& Projection);
+    // 카메라 회전은 그대로 두고, 중심·반지름으로 감싼 영역이 화면에 꽉 차지 않게 들어오도록 카메라를 옮긴다 (F 키).
+    // 외부 카메라가 그리는 View(PIE 등)는 옮기지 않고 false를 반환한다.
+    bool FocusViewOn(int32 ViewIndex, const FVector& Center, float Radius);
     void ClearViewCameraOverride(int32 ViewIndex);
     bool HasViewCameraOverride(int32 ViewIndex) const { return ViewIndex >= 0 && ViewIndex < MaxViewCount && bHasCameraOverride[ViewIndex]; }
     // 지정 View에 적용된 카메라 프리셋을 반환한다.

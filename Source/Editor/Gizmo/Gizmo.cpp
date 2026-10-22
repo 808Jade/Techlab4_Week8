@@ -9,13 +9,12 @@ static const FVector AxisDirs[3] = {
 	FVector(0, 0, 1),
 };
 
-static const int AXIS_PLANE_YZ = 3;
-static const int AXIS_PLANE_ZX = 4;
-static const int AXIS_PLANE_XY = 5;
-static const int AXIS_SCREEN = 6;   // 3축 자유 이동
+static const int AXIS_SCREEN = FGizmo::AxisScreen;   // 3축 자유 이동
 
 static const float AxisLength = 1.5f;
 static const float HitPixels = 12.0f;
+// 이보다 작게 투영된 평면 핸들(픽셀²)은 거의 옆면이라 선택하지 않는다.
+static const float MinPlaneHandleScreenArea = 16.0f;
 
 // 원근 View에서는 기즈모를 카메라 앞 이 거리에 그려 화면 크기를 고정한다.
 static const float PerspectiveGizmoDistance = 10.0f;
@@ -87,7 +86,63 @@ int FGizmo::PickLinearAxis(const FVector2& MousePos, const FMatrix& ViewProj, in
 			Best = i;
 		}
 	}
+
+	// 축 선분이 우선이고, 축에서 떨어진 곳이면 평면 핸들을 검사한다.
+	if (Best < 0)
+		Best = PickPlaneAxis(MousePos, ViewProj, ScreenW, ScreenH);
 	return Best;
+}
+
+int FGizmo::PickPlaneAxis(const FVector2& MousePos, const FMatrix& ViewProj, int ScreenW, int ScreenH) const
+{
+	const FVector Origin = GetRenderLocation();
+	const float Min = PlaneHandleMin * ViewRenderScale;
+	const float Max = PlaneHandleMax * ViewRenderScale;
+
+	for (int PlaneAxis = AxisPlaneYZ; PlaneAxis <= AxisPlaneXY; ++PlaneAxis)
+	{
+		FVector U, V;
+		GetPlaneHandleAxes(PlaneAxis, U, V);
+		const FVector2 Corners[4] = {
+			WorldToScreen(Origin + U * Min + V * Min, ViewProj, ScreenW, ScreenH),
+			WorldToScreen(Origin + U * Max + V * Min, ViewProj, ScreenW, ScreenH),
+			WorldToScreen(Origin + U * Max + V * Max, ViewProj, ScreenW, ScreenH),
+			WorldToScreen(Origin + U * Min + V * Max, ViewProj, ScreenW, ScreenH),
+		};
+
+		// 평면을 옆에서 봐서 선처럼 납작해진 핸들은 고르지 않는다.
+		float TwiceArea = 0.0f;
+		for (int Edge = 0; Edge < 4; ++Edge)
+		{
+			const FVector2& A = Corners[Edge];
+			const FVector2& B = Corners[(Edge + 1) % 4];
+			TwiceArea += A.X * B.Y - B.X * A.Y;
+		}
+		if (std::fabs(TwiceArea) < MinPlaneHandleScreenArea * 2.0f)
+			continue;
+
+		// 투영된 사각형은 볼록하므로 네 변의 외적 부호가 모두 같으면 안쪽이다.
+		bool bHasPositive = false;
+		bool bHasNegative = false;
+		for (int Edge = 0; Edge < 4; ++Edge)
+		{
+			const FVector2& A = Corners[Edge];
+			const FVector2& B = Corners[(Edge + 1) % 4];
+			const float Cross = (B.X - A.X) * (MousePos.Y - A.Y) - (B.Y - A.Y) * (MousePos.X - A.X);
+			bHasPositive |= Cross > 0.0f;
+			bHasNegative |= Cross < 0.0f;
+		}
+		if (!(bHasPositive && bHasNegative))
+			return PlaneAxis;
+	}
+	return -1;
+}
+
+void FGizmo::GetPlaneHandleAxes(int PlaneAxis, FVector& OutU, FVector& OutV) const
+{
+	const int NormalAxis = PlaneAxis - AxisPlaneYZ;
+	OutU = GetAxisDirection((NormalAxis + 1) % 3);
+	OutV = GetAxisDirection((NormalAxis + 2) % 3);
 }
 
 // 회전 링을 선분으로 나누어 화면 거리로 회전 축을 고른다.
@@ -193,6 +248,11 @@ void FGizmo::BeginDrag(int Axis, const FRay& MouseRay, const FVector2& MousePos)
 			DragPlaneNormal = -MouseRay.Direction;
 		}
 	}
+	else if (IsPlaneAxis(Axis))
+	{
+		// 평면 핸들은 그 평면 자체에서 마우스를 따라간다.
+		DragPlaneNormal = GetAxisDirection(Axis - AxisPlaneYZ);
+	}
 	else if (Mode == EGizmoMode::Rotation)
 	{
 		FVector ToCamera = (GetCameraLocation() - GetRenderLocation()).Normalized();
@@ -262,6 +322,31 @@ void FGizmo::UpdateDrag(const FRay& MouseRay, const FVector2& MousePos)
 		FQuat result = delta * start;
 
 		Target->SetRelativeRotation(result.ToFRotator());
+		return;
+	}
+
+	if (IsPlaneAxis(DraggingAxis))
+	{
+		// 교차점이 평면 위에 있으므로 이동량도 그 평면 안의 두 축 성분만 가진다.
+		const FVector PlaneDelta = current - DragStartPoint;
+		if (Mode == EGizmoMode::Location)
+		{
+			Target->SetWorldLocation(DragStartWorldLocation + PlaneDelta, false);
+			return;
+		}
+
+		// 크기: 두 축 사이 대각선 방향으로 끈 만큼 평면의 두 축을 같은 배율로 키운다.
+		FVector U, V;
+		GetPlaneHandleAxes(DraggingAxis, U, V);
+		const float PlaneAmount = PlaneDelta.Dot((U + V).Normalized());
+		float PlaneFactor = 1.0f + PlaneAmount / ViewRenderScale;
+		if (PlaneFactor < 0.01f) PlaneFactor = 0.01f;
+
+		const int NormalAxis = DraggingAxis - AxisPlaneYZ;
+		FVector NewScale = DragStartScale;
+		NewScale.V[(NormalAxis + 1) % 3] *= PlaneFactor;
+		NewScale.V[(NormalAxis + 2) % 3] *= PlaneFactor;
+		Target->SetRelativeScale3D(NewScale);
 		return;
 	}
 

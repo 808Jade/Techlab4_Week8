@@ -210,12 +210,15 @@ private:
 	// 선택한 액터를 씬 파일과 같은 형식으로 복사해 두고, 붙여넣을 때 같은 위치에 새로 만든다.
 	void CopySelectedActors();
 	void PasteCopiedActors();
+	// 선택된 액터가 화면에 들어오도록 마지막으로 편집한 View의 카메라를 옮긴다. 회전은 그대로 둔다 (F 키).
+	void FocusOnSelection();
 
 	FEditorSelection Selection;
 
 	FEditorCommand Copy;
 	FEditorCommand Paste;
 	FEditorCommand Duplicate;
+	FEditorCommand FocusSelection;
 	TArray<uint8> CopiedActorData;
 
 	// 다중 선택 기즈모 드래그를 시작한 순간의 월드 Transform. 0번은 Primary 액터의 루트다.
