@@ -124,7 +124,6 @@ bool UEditorEngine::Init()
 
 	// 필요한 Panel들 추가후 raw pointer 반환(소유권 = EditorUI)
 	DetailsPanel = EditorUI->AddEditorPanel<FDetailsPanel>();
-	EditorControlsPanel = EditorUI->AddEditorPanel<FEditorControlsPanel>();
 	ViewportsPanel = EditorUI->AddEditorPanel<FViewportsPanel>();
 	ContentDrawerPanel = EditorUI->AddEditorPanel<FContentDrawerPanel>();
 
@@ -216,14 +215,10 @@ bool UEditorEngine::Init()
 
 	DetailsPanel->SetWorld(GetActiveWorld());
 
-	EditorControlsPanel->SetWorld(GetActiveWorld());
-	EditorControlsPanel->SetIsPlayingQuery([this]() { return IsPlaying(); });
-	EditorControlsPanel->SetGizmo(Gizmo.get());
-	EditorControlsPanel->SetViewportAdapter(&MultipleViewportsAdapter);
-
 	SettingsPanel->SetWorld(GetActiveWorld());
 	SettingsPanel->SetViewportAdapter(&MultipleViewportsAdapter);
 	ViewportsPanel->SetViewportAdapter(&MultipleViewportsAdapter);
+	ViewportsPanel->SetGizmo(Gizmo.get());
 
 	SkyboxRenderer = MakeUnique<FSkyboxRenderer>();
 	SkyboxRenderer->Init(ResourcePaths::DefaultSkyPanorama);
@@ -282,6 +277,17 @@ bool UEditorEngine::Init()
 	FocusSelection = { "Focus", "Focus Selected Actors", nullptr, White, { EKeyCode::F } };
 	FocusSelection.CanExecute = [this]() { return !Selection.IsEmpty(); };
 	FocusSelection.Execute = [this]() { FocusOnSelection(); };
+
+	CycleGizmoMode = { "Gizmo Mode", "Cycle Gizmo Mode", nullptr, White, { EKeyCode::Space } };
+	CycleGizmoMode.Execute = [this]()
+	{
+		const int NextMode = (static_cast<int>(Gizmo->GetMode()) + 1) % 3;
+		Gizmo->SetMode(static_cast<EGizmoMode>(NextMode));
+	};
+
+	EditorUI->GetToolbar()->SetActorSpawnBinding(
+		[this](UClass* Class) { SpawnActorFromToolbar(Class); },
+		[this]() { return !IsPlaying(); });
 	EditorUI->GetToolbar()->SetPlayModeBinding(
 		[this]() { return PlayMode; },
 		[this](EPlayModeType Mode) { PlayMode = Mode; },
@@ -342,12 +348,11 @@ void UEditorEngine::Tick(const float DeltaTime)
 void UEditorEngine::BeginFrame(const float DeltaTime)
 {
 	FStatOverlay::Tick(DeltaTime);
-	EditorControlsPanel->FEditorControlsPanel::DeltaTime = DeltaTime;
 
 	if (!ImGui::GetIO().WantTextInput && FInputSystem::IsKeyPressed(EKeyCode::Delete))
 		DeleteSelectedActors();
 
-	EditorCommandUI::ProcessShortcuts({ &Save, &Copy, &Paste, &Duplicate, &FocusSelection });
+	EditorCommandUI::ProcessShortcuts({ &Save, &Copy, &Paste, &Duplicate, &FocusSelection, &CycleGizmoMode });
 }
 
 // 패널의 Layout·Preset 요청과 입력을 Adapter에 반영한다.
@@ -442,6 +447,7 @@ void UEditorEngine::RenderMultipleViewports()
 {
 	// PIE 창 크기를 외부 View에 먼저 알려야 카메라 Override의 직교 폭 보정이 맞는다.
 	bPIEWindowRendered = false;
+	bShadowAtlasRenderedThisFrame = false;
 	const bool bRenderPIEWindow = IsPIEInWindow() && UpdatePIEWindowTargets();
 
 	// 월드 Tick으로 움직인 게임 카메라를 같은 프레임에 반영한다.
@@ -1069,6 +1075,23 @@ void UEditorEngine::FocusOnSelection()
 	MultipleViewportsAdapter.FocusViewOn(MultipleViewportsAdapter.GetEditorViewIndex(), Center, Radius);
 }
 
+void UEditorEngine::SpawnActorFromToolbar(UClass* Class)
+{
+	// PIE 중에는 보이지 않는 에디터 월드에 스폰되므로 막는다.
+	if (!Class || IsPlaying())
+		return;
+
+	// 편집 중인 View 카메라 앞에 놓아 바로 보이게 한다.
+	constexpr float SpawnDistance = 10.0f;
+	const int32 ViewIndex = MultipleViewportsAdapter.GetEditorViewIndex();
+	FTransform SpawnTransform = FTransform::Identity;
+	SpawnTransform.Location = MultipleViewportsAdapter.GetEngineCameraLocation(ViewIndex)
+		+ MultipleViewportsAdapter.GetEngineCameraForward(ViewIndex) * SpawnDistance;
+
+	if (AActor* NewActor = EditorWorld->SpawnActor(Class, NAME_None, &SpawnTransform))
+		OutlinerPanel->SelectActor(NewActor);
+}
+
 void UEditorEngine::CopySelectedActors()
 {
 	if (!FJsonArchive::SaveActorsToBytes(Selection.GetActors(), CopiedActorData))
@@ -1113,9 +1136,13 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 
 	ViewWorld.GetScene().BuildStructuredLightAndShadowData(PointLights, SpotLights, DirectionalLights, ShadowInfos, PreviewShadowMapLightProxy, ShadowStats, bDrawShadows, &frustemPlanes, ViewCameraLocation);
 	
-	bool bCacheHit;
-	bCacheHit = !ViewWorld.GetScene().IsShadowDirty() && (ShadowInfos.Num() == PrevShadowCount[ViewIndex]) && FScene::bCacheWholeSceneShadows;
-	PrevShadowCount[ViewIndex] = ShadowInfos.Num();
+	// 라이트 컬링은 View마다 다르지만 아틀라스는 하나라서, 다른 View가 방금 자기 라이트로 덮어썼을 수 있다.
+	// 아틀라스에 지금 들어 있는 것이 이 View의 목록과 같고 그 뒤로 씬이 바뀌지 않았을 때만 재사용한다.
+	const bool bSameShadowSet = ShadowAtlasWorld == &ViewWorld
+		&& ShadowAtlasInfos.Num() == ShadowInfos.Num()
+		&& (ShadowInfos.IsEmpty() || std::memcmp(ShadowAtlasInfos.GetData(), ShadowInfos.GetData(), sizeof(FShadowInfo) * ShadowInfos.Num()) == 0);
+	const bool bSceneShadowUnchanged = !ViewWorld.GetScene().IsShadowDirty() || bShadowAtlasRenderedThisFrame;
+	const bool bCacheHit = FScene::bCacheWholeSceneShadows && bSameShadowSet && bSceneShadowUnchanged;
 
 	Renderer->SetLighting(Lighting, PointLights, SpotLights);
 
@@ -1135,15 +1162,25 @@ void UEditorEngine::RenderFrame(const int32 ViewIndex, UWorld& ViewWorld,
 
 	const FShadowInfo* DirectionalShadowInfo = bDrawShadows ? ViewWorld.GetScene().GetDirectionalShadowInfo() : nullptr;
 
-	const FViewCamera& Camera = MultipleViewportsAdapter.GetViewCamera(ViewIndex);
+	// CSM은 화면에 실제로 그리는 카메라의 FOV로 캐스케이드를 나눠야 한다.
+	// 저장된 에디터 카메라(GetViewCamera)는 PIE Override를 모르고, 별도 PIE 창(View 4)은 받지도 못한다.
+	const FCameraProjection& Projection = MultipleViewportsAdapter.GetEngineProjection(ViewIndex);
 	const FRect& Rect = MultipleViewportsAdapter.GetViewRect(ViewIndex);
 	const float AspectRatio = (Rect.Width > 0.0f && Rect.Height > 0.0f) ? (Rect.Width / Rect.Height) : (16.0f / 9.0f);
-	const float FovDegrees = (Camera.Projection.FovDegrees > 0.0f) ? Camera.Projection.FovDegrees : 60.0f;
+	const float FovDegrees = (Projection.FovDegrees > 0.0f) ? Projection.FovDegrees : 60.0f;
 
 
 	//Shadow Info StructuredBuffer, ShadowMap 만들기
 	if (DirectionalShadowInfo != nullptr || ShadowInfos.Num() > 0)
 	{
+		// 아틀라스를 다시 그리면 무엇을 그렸는지 기록한다. RenderShadowPass가 타일 배치를 채우므로 그 전에 복사한다.
+		if (!bCacheHit)
+		{
+			ShadowAtlasWorld = &ViewWorld;
+			ShadowAtlasInfos = ShadowInfos;
+			bShadowAtlasRenderedThisFrame = true;
+		}
+
 		Renderer->RenderShadowPass(
 			DirectionalShadowInfo,
 			Lighting.Directional.Direction,

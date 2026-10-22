@@ -4,12 +4,15 @@
 #include "Editor/LevelEditor/MultipleViewports/Adapter/MultipleViewportsAdapterTypes.h"
 #include "Render/RenderingInfo.h"
 class FMultipleViewportsAdapter;
+class FGizmo;
 
 class FViewportsPanel : public IEditorPanel
 {
 public:
 	// View 표시 모드를 편집할 Adapter를 연결한다. 엔진이 수명을 보장한다.
 	void SetViewportAdapter(FMultipleViewportsAdapter* Value) { ViewportAdapter = Value; }
+	// 상단 World/Local 버튼이 바꿀 기즈모를 연결한다. 없으면 버튼을 그리지 않는다.
+	void SetGizmo(FGizmo* Value) { Gizmo = Value; }
 	// 네 View의 렌더 타깃과 UI 제어 상태를 초기화한다.
 	bool Init() override;
 	// 프레임 입력에서 Splitter Drag와 View별 UI 요청을 수집한다.
@@ -47,6 +50,7 @@ public:
 
 private:
 	FMultipleViewportsAdapter* ViewportAdapter = nullptr;
+	FGizmo* Gizmo = nullptr;
 	struct FViewSlot
 	{
 		// View 하나의 Rect·활성 상태·Color/Depth 타깃과 렌더 정보를 담는다.
@@ -69,14 +73,24 @@ private:
 	void DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMin) const;
 	// ShowCameraSpeed로 요청된 속도 표시가 아직 유효하면 그린다.
 	void DrawCameraSpeedNotice(ImDrawList* DrawList) const;
+	// View 오른쪽 위 카메라 메뉴. 프리셋 선택과 FOV·Near·Far·Transform 편집을 한 드롭다운에 담는다.
+	void DrawCameraMenu(int32 ViewIndex, const ImVec2& ViewTopRight);
+	// 카메라 메뉴 안의 투영·Transform 편집 칸. 바뀐 값만 Adapter에 반영한다.
+	void DrawCameraProperties(int32 ViewIndex);
 
 	FViewSlot Slots[4]{};
 	ImVec2 ContentOrigin{};
 	ImVec2 ContentSize{1.0f, 1.0f};
 	bool bHovered = false;
-	bool bStatResetButtonVisible = false;
-	ImVec2 StatResetButtonMin{};
-	ImVec2 StatResetButtonMax{};
+	// View 위에 그린 버튼·콤보의 화면 영역. 이 위의 클릭은 뷰포트 입력(피킹·기즈모)으로 보지 않는다.
+	struct FControlRect
+	{
+		ImVec2 Min;
+		ImVec2 Max;
+	};
+	TArray<FControlRect> ControlRects;
+	// 방금 그린 항목의 영역을 ControlRects에 넣는다.
+	void RecordLastItemAsControl();
 	float PendingHorizontalDrag = 0.0f;
 	float PendingVerticalDrag = 0.0f;
 	// 누른 뒤 커서가 Splitter 영역을 벗어나도 버튼을 놓을 때까지 드래그를 유지한다.

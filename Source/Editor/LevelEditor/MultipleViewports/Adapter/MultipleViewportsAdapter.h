@@ -100,6 +100,8 @@ public:
     FMatrix BuildEngineBillboardMatrix(int32 ViewIndex, const FVector& WorldPosition, float Width, float Height) const;
     // 지정 View가 직교 투영인지 반환한다.
     bool IsOrthographic(int32 ViewIndex) const;
+    // 지정 View를 실제로 그리는 카메라의 투영값. PIE처럼 Override가 있으면 그 카메라의 값이고, 외부 View(4)도 받는다.
+    const FCameraProjection& GetEngineProjection(int32 ViewIndex) const;
     // 활성 View의 로컬 마우스 좌표를 Core로 역투영해 엔진 Ray로 반환한다.
     bool TryGetActiveViewRay(FVector2 LocalMousePosition, FRay& OutRay) const;
     // 지정 View의 절두체를 통과한 오브젝트 수를 반환한다.

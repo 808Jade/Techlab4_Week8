@@ -684,6 +684,12 @@ bool FMultipleViewportsAdapter::IsOrthographic(const int32 ViewIndex) const
     return GetEffectiveCamera(ViewIndex).Projection.Mode == EProjectionMode::Orthographic;
 }
 
+const FCameraProjection& FMultipleViewportsAdapter::GetEngineProjection(const int32 ViewIndex) const
+{
+    assert(ViewIndex >= 0 && ViewIndex < MaxViewCount);
+    return GetEffectiveCamera(ViewIndex).Projection;
+}
+
 // 활성 View Rect 기준 로컬 좌표를 Core로 역투영하고 엔진 Ray로 변환한다.
 bool FMultipleViewportsAdapter::TryGetActiveViewRay(const FVector2 LocalMousePosition, FRay& OutRay) const
 {

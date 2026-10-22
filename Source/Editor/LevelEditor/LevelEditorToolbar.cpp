@@ -2,6 +2,7 @@
 #include "LevelEditorToolbar.h"
 
 #include "Asset/AssetManager.h"
+#include "Editor/LevelEditor/ActorSpawnList.h"
 
 namespace
 {
@@ -48,6 +49,8 @@ void FLevelEditorToolbar::Draw()
 		DrawFileGroup();
 		ToolbarSeparator();
 		DrawPlayGroup();
+		ToolbarSeparator();
+		DrawSpawnGroup();
 	}
 	ImGui::End();                       // Begin 결과와 관계없이 항상 End
 	ImGui::PopStyleVar(2);
@@ -85,6 +88,36 @@ void FLevelEditorToolbar::DrawPlayGroup()
 	//Button("##Resume", Resume);
 	//Button("##Step", StepFrame);
 	//Button("##Stop", Stop);
+
+	EndToolbarGroup();
+}
+
+// Add 버튼을 누르면 스폰할 수 있는 액터 목록이 펼쳐진다.
+void FLevelEditorToolbar::DrawSpawnGroup()
+{
+	if (!SpawnActor)
+		return;
+
+	BeginToolbarGroup();
+
+	// PIE 중에는 보이지 않는 에디터 월드에 스폰되므로 막는다.
+	const bool bCanSpawn = !CanSpawnActor || CanSpawnActor();
+	ImGui::BeginDisabled(!bCanSpawn);
+	if (ImGui::Button("+ Add"))
+		ImGui::OpenPopup("AddActorPopup");
+	ImGui::EndDisabled();
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		ImGui::SetTooltip("Add an actor in front of the editing viewport camera");
+
+	if (ImGui::BeginPopup("AddActorPopup"))
+	{
+		for (const FSpawnableActorType& Type : SpawnableActorTypes)
+		{
+			if (ImGui::MenuItem(Type.Label))
+				SpawnActor(Type.GetStaticClass());
+		}
+		ImGui::EndPopup();
+	}
 
 	EndToolbarGroup();
 }

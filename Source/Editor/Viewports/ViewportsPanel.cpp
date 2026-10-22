@@ -1,6 +1,7 @@
 ﻿#include "EnginePCH.h"
 #include "Editor/Viewports/ViewportsPanel.h"
 #include "Editor/LevelEditor/MultipleViewports/Adapter/MultipleViewportsAdapter.h"
+#include "Editor/Gizmo/Gizmo.h"
 
 #include "Core/StatOverlay.h"
 #include "Core/Stats/LightweightStats.h"
@@ -9,6 +10,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <format>
 
 #include "Core/Stats/EditorStats.h"
@@ -29,6 +31,20 @@ constexpr ImU32 ValueColor = IM_COL32(235, 235, 235, 255);
 
 // Camera Speed 표시
 constexpr double CameraSpeedNoticeSeconds = 1.5;
+
+// View 상단 컨트롤
+constexpr float ViewControlMargin = 8.0f;
+constexpr float CameraMenuPopupWidth = 320.0f;
+constexpr float CameraPropertyLabelWidth = 120.0f;
+
+// 가장 긴 항목이 잘리지 않는 콤보 폭 (글자 + 좌우 여백 + 펼침 화살표 버튼)
+float CalcComboWidth(const char* const* Labels, const int Count)
+{
+	float MaxTextWidth = 0.0f;
+	for (int Index = 0; Index < Count; ++Index)
+		MaxTextWidth = std::max(MaxTextWidth, ImGui::CalcTextSize(Labels[Index]).x);
+	return MaxTextWidth + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetFrameHeight();
+}
 }
 
 // 네 View의 렌더 타깃을 최소 크기로 초기화한다.
@@ -87,18 +103,27 @@ FVector2 FViewportsPanel::GetLocalMousePosition() const
 	return {Mouse.x - ContentOrigin.x, Mouse.y - ContentOrigin.y};
 }
 
-// 엔진 입력 처리는 ImGui NewFrame보다 먼저 실행되므로 현재 OS 커서로 버튼 영역을 검사한다.
+// 엔진 입력 처리는 ImGui NewFrame보다 먼저 실행되므로, 지난 프레임에 기록한 View 위 컨트롤 영역을 현재 OS 커서로 검사한다.
+// 컨트롤 위의 클릭이 뷰포트 피킹(빈 곳 클릭 = 선택 해제)이나 기즈모 조작으로 새지 않게 한다.
 bool FViewportsPanel::IsHovered() const
 {
-	if (bStatResetButtonVisible && FStatOverlay::IsAnyEnabled())
+	POINT Cursor{};
+	if (::GetCursorPos(&Cursor))
 	{
-		POINT Cursor{};
-		if (::GetCursorPos(&Cursor) &&
-			Cursor.x >= StatResetButtonMin.x && Cursor.x < StatResetButtonMax.x &&
-			Cursor.y >= StatResetButtonMin.y && Cursor.y < StatResetButtonMax.y)
-			return false;
+		const float CursorX = static_cast<float>(Cursor.x);
+		const float CursorY = static_cast<float>(Cursor.y);
+		for (const FControlRect& Rect : ControlRects)
+		{
+			if (CursorX >= Rect.Min.x && CursorX < Rect.Max.x && CursorY >= Rect.Min.y && CursorY < Rect.Max.y)
+				return false;
+		}
 	}
 	return bHovered;
+}
+
+void FViewportsPanel::RecordLastItemAsControl()
+{
+	ControlRects.Add({ImGui::GetItemRectMin(), ImGui::GetItemRectMax()});
 }
 
 // 누적 가로 Splitter 이동량을 반환하고 초기화한다.
@@ -148,6 +173,134 @@ bool FViewportsPanel::ConsumeCameraPresetRequest(int32& OutViewIndex, EMultipleV
 	return true;
 }
 
+// 현재 프리셋 이름을 단 드롭다운을 View 오른쪽 위에 두고, 펼치면 프리셋과 카메라 속성을 보여 준다.
+void FViewportsPanel::DrawCameraMenu(const int32 ViewIndex, const ImVec2& ViewTopRight)
+{
+	if (!ViewportAdapter)
+		return;
+
+	const EMultipleViewportsCameraPreset CurrentPreset = CurrentCameraPresets[ViewIndex];
+	// 어떤 프리셋 이름이 와도 잘리지 않게 가장 긴 이름에 맞춘다.
+	const float CameraMenuWidth = CalcComboWidth(CameraPresetLabels, IM_ARRAYSIZE(CameraPresetLabels));
+	ImGui::SetCursorScreenPos({ViewTopRight.x - CameraMenuWidth - ViewControlMargin, ViewTopRight.y + ViewControlMargin});
+	ImGui::SetNextItemWidth(CameraMenuWidth);
+	// 콤보 팝업은 기본으로 버튼 폭을 따르므로, 속성 칸이 들어가도록 최소 폭을 넓힌다.
+	ImGui::SetNextWindowSizeConstraints({CameraMenuPopupWidth, 0.0f}, {FLT_MAX, FLT_MAX});
+	const bool bOpen = ImGui::BeginCombo("##CameraMenu", CameraPresetLabels[static_cast<int>(CurrentPreset)]);
+	RecordLastItemAsControl();
+	if (!bOpen)
+		return;
+
+	// 프리셋은 고르면 메뉴가 닫히고, 다음 프레임에 엔진이 요청을 Adapter에 반영한다.
+	const auto PresetItem = [&](const EMultipleViewportsCameraPreset Preset)
+	{
+		if (ImGui::Selectable(CameraPresetLabels[static_cast<int>(Preset)], Preset == CurrentPreset))
+		{
+			PendingCameraPresetViewIndex = ViewIndex;
+			PendingCameraPreset = Preset;
+		}
+	};
+	ImGui::SeparatorText("Perspective");
+	PresetItem(EMultipleViewportsCameraPreset::Perspective);
+	ImGui::SeparatorText("Orthographic");
+	for (int Preset = static_cast<int>(EMultipleViewportsCameraPreset::OrthographicView);
+		Preset <= static_cast<int>(EMultipleViewportsCameraPreset::Right); ++Preset)
+		PresetItem(static_cast<EMultipleViewportsCameraPreset>(Preset));
+
+	ImGui::SeparatorText("View");
+	DrawCameraProperties(ViewIndex);
+	ImGui::EndCombo();
+}
+
+void FViewportsPanel::DrawCameraProperties(const int32 ViewIndex)
+{
+	FViewCamera Camera = ViewportAdapter->GetViewCamera(ViewIndex);
+	const bool bOrthographic = Camera.Projection.Mode == EProjectionMode::Orthographic;
+	bool bChanged = false;
+	bool bRotationChanged = false;
+
+	if (!ImGui::BeginTable("CameraProperties", 2))
+		return;
+	ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, CameraPropertyLabelWidth);
+	ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+	const auto BeginRow = [](const char* Label)
+	{
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted(Label);
+		ImGui::TableSetColumnIndex(1);
+		ImGui::SetNextItemWidth(-1.0f);
+	};
+
+	// 직교는 FOV 대신 화면에 담기는 월드 폭을 바꾼다.
+	if (bOrthographic)
+	{
+		BeginRow("Ortho Width");
+		float OrthoWidth = Camera.Projection.OrthoWidth;
+		if (ImGui::DragFloat("##OrthoWidth", &OrthoWidth, 0.1f) && std::isfinite(OrthoWidth))
+		{
+			Camera.Projection.OrthoWidth = FMath::Clamp(OrthoWidth, 0.01f, 1000000.0f);
+			bChanged = true;
+		}
+	}
+	else
+	{
+		BeginRow("Field of View");
+		float Fov = Camera.Projection.FovDegrees;
+		if (ImGui::DragFloat("##FOV", &Fov, 0.1f, 1.0f, 179.0f, "%.1f") && std::isfinite(Fov))
+		{
+			Camera.Projection.FovDegrees = FMath::Clamp(Fov, 1.0f, 179.0f);
+			bChanged = true;
+		}
+	}
+
+	// Near와 Far는 둘 다 맞아야(0 < Near < Far) 반영한다.
+	BeginRow("Near View Plane");
+	float Near = Camera.Projection.NearClip;
+	bool bClipChanged = ImGui::InputFloat("##Near", &Near);
+	BeginRow("Far View Plane");
+	float Far = Camera.Projection.FarClip;
+	bClipChanged |= ImGui::InputFloat("##Far", &Far);
+	if (bClipChanged && std::isfinite(Near) && std::isfinite(Far) && Near > 0.0f && Far > Near)
+	{
+		Camera.Projection.NearClip = Near;
+		Camera.Projection.FarClip = Far;
+		bChanged = true;
+	}
+
+	BeginRow("Location");
+	float Location[3] = {Camera.Transform.Location.X, Camera.Transform.Location.Y, Camera.Transform.Location.Z};
+	if (ImGui::DragFloat3("##Location", Location, 0.1f) &&
+		std::isfinite(Location[0]) && std::isfinite(Location[1]) && std::isfinite(Location[2]))
+	{
+		Camera.Transform.Location = {Location[0], Location[1], Location[2]};
+		bChanged = true;
+	}
+
+	// 원근 카메라는 Roll 없이 Yaw·Pitch로만 조작하므로 Pitch를 제한하고 Roll을 0으로 둔다.
+	BeginRow("Rotation");
+	const FQuat CurrentRotation(Camera.Transform.Rotation.X, Camera.Transform.Rotation.Y, Camera.Transform.Rotation.Z, Camera.Transform.Rotation.W);
+	FRotator Rotation = CurrentRotation.ToFRotator();
+	float Euler[3] = {Rotation.Pitch, Rotation.Yaw, Rotation.Roll};
+	if (ImGui::DragFloat3("##Rotation", Euler, 0.1f) &&
+		std::isfinite(Euler[0]) && std::isfinite(Euler[1]) && std::isfinite(Euler[2]))
+	{
+		Rotation.Pitch = bOrthographic ? Euler[0] : FMath::Clamp(Euler[0], -89.0f, 89.0f);
+		Rotation.Yaw = Euler[1];
+		Rotation.Roll = bOrthographic ? Euler[2] : 0.0f;
+		const FQuat NewRotation = Rotation.Quaternion();
+		Camera.Transform.Rotation = {NewRotation.X, NewRotation.Y, NewRotation.Z, NewRotation.W};
+		bChanged = true;
+		bRotationChanged = true;
+	}
+	ImGui::SetItemTooltip("Pitch / Yaw / Roll");
+	ImGui::EndTable();
+
+	if (bChanged)
+		ViewportAdapter->ApplyCameraProperties(ViewIndex, Camera, bRotationChanged);
+}
+
 // 표시할 View와 값을 기록하고 표시 시작 시각을 갱신한다.
 void FViewportsPanel::ShowCameraSpeed(const int32 ViewIndex, const float Speed)
 {
@@ -191,7 +344,7 @@ void FViewportsPanel::OnRender()
 	ContentSize.x = std::max(1.0f, ContentSize.x);
 	ContentSize.y = std::max(1.0f, ContentSize.y);
 	bHovered = ImGui::IsWindowHovered();
-	bStatResetButtonVisible = false;
+	ControlRects.Reset();
 
 	// 전체 캔버스를 한 번 확보한 뒤 각 렌더 타깃을 창 DrawList에 직접 그린다.
 	// Image 항목 네 개를 따로 배치하면 ImGui 레이아웃과 클리핑 상태가 삽입 순서에
@@ -274,14 +427,20 @@ void FViewportsPanel::OnRender()
 			ContentOrigin.x + Slots[ViewIndex].Rect.X + 8.0f,
 			ContentOrigin.y + Slots[ViewIndex].Rect.Y + 8.0f});
 		ImGui::PushID(100 + ViewIndex);
-		int SelectedPreset = static_cast<int>(CurrentCameraPresets[ViewIndex]);
-		ImGui::SetNextItemWidth(120.0f);
-		if (ImGui::Combo("##CameraPreset", &SelectedPreset, CameraPresetLabels, IM_ARRAYSIZE(CameraPresetLabels)))
+		// 왼쪽 컨트롤 줄 전체를 한 그룹으로 묶어 피킹을 막을 영역으로 기록한다.
+		ImGui::BeginGroup();
+		// 기즈모 좌표계는 모든 View가 공유한다. 크기 모드는 항상 Local 축을 쓴다.
+		if (Gizmo)
 		{
-			PendingCameraPresetViewIndex = ViewIndex;
-			PendingCameraPreset = static_cast<EMultipleViewportsCameraPreset>(SelectedPreset);
+			const bool bWorldSpace = Gizmo->GetSpace() == EGizmoSpace::World;
+			// 두 글자 중 긴 쪽에 맞춰 눌러도 버튼 폭이 바뀌지 않게 한다.
+			const float GizmoSpaceButtonWidth = std::max(ImGui::CalcTextSize("World").x, ImGui::CalcTextSize("Local").x)
+				+ ImGui::GetStyle().FramePadding.x * 2.0f;
+			if (ImGui::Button(bWorldSpace ? "World" : "Local", {GizmoSpaceButtonWidth, 0.0f}))
+				Gizmo->SetSpace(bWorldSpace ? EGizmoSpace::Local : EGizmoSpace::World);
+			ImGui::SetItemTooltip("Gizmo coordinate space (Scale always uses Local)");
+			ImGui::SameLine();
 		}
-		ImGui::SameLine();
 		// 조명·셰이딩 모델은 Lit일 때만 보인다.
         if (ViewportAdapter)
         {
@@ -289,7 +448,7 @@ void FViewportsPanel::OnRender()
             bool bChanged = false;
 
             int ViewMode = static_cast<int>(RenderMode.ViewMode);
-            ImGui::SetNextItemWidth(100.0f);
+            ImGui::SetNextItemWidth(CalcComboWidth(ViewModeNames, IM_ARRAYSIZE(ViewModeNames)));
             if (ImGui::Combo("##ViewMode", &ViewMode, ViewModeNames, IM_ARRAYSIZE(ViewModeNames)))
             {
                 RenderMode.ViewMode = static_cast<EViewMode>(ViewMode);
@@ -301,7 +460,7 @@ void FViewportsPanel::OnRender()
             {
                 const char* LightingModelLabels[] = {"Lambert", "Phong", "Blinn-Phong"};
                 int LightingModel = static_cast<int>(RenderMode.LightingModel);
-                ImGui::SetNextItemWidth(110.0f);
+                ImGui::SetNextItemWidth(CalcComboWidth(LightingModelLabels, IM_ARRAYSIZE(LightingModelLabels)));
                 if (ImGui::Combo("##LightingModel", &LightingModel, LightingModelLabels, IM_ARRAYSIZE(LightingModelLabels)))
                 {
                     RenderMode.LightingModel = static_cast<ELightingModel>(LightingModel);
@@ -311,7 +470,7 @@ void FViewportsPanel::OnRender()
                 ImGui::SameLine();
 
                 int ShadingModel = static_cast<int>(RenderMode.ShadingModel);
-                ImGui::SetNextItemWidth(90.0f);
+                ImGui::SetNextItemWidth(CalcComboWidth(ShadingModelNames, IM_ARRAYSIZE(ShadingModelNames)));
                 if (ImGui::Combo("##ShadingModel", &ShadingModel, ShadingModelNames, IM_ARRAYSIZE(ShadingModelNames)))
                 {
                     RenderMode.ShadingModel = static_cast<EShadingModel>(ShadingModel);
@@ -347,10 +506,13 @@ void FViewportsPanel::OnRender()
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Reset Stats"))
 				FStatRegistry::Reset();
-			StatResetButtonMin = ImGui::GetItemRectMin();
-			StatResetButtonMax = ImGui::GetItemRectMax();
-			bStatResetButtonVisible = true;
 		}
+		ImGui::EndGroup();
+		RecordLastItemAsControl();
+
+		DrawCameraMenu(ViewIndex, {
+			ContentOrigin.x + Slots[ViewIndex].Rect.X + Slots[ViewIndex].Rect.Width,
+			ContentOrigin.y + Slots[ViewIndex].Rect.Y});
 		ImGui::PopID();
 	}
 

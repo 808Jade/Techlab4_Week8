@@ -36,7 +36,7 @@ void FEditorControlsPanel::AddActor(uint32 Index)
 	if (IsPlayingQuery && IsPlayingQuery())
 		return;
 
-	World->SpawnActor(Classes[Index]);
+	World->SpawnActor(SpawnableActorTypes[Index].GetStaticClass());
 }
 
 // 액터 생성·카메라 속성·기즈모·경로 추적 UI를 그린다.
@@ -78,7 +78,9 @@ void FEditorControlsPanel::OnRender()
 		Available - SpawnButtonWidth - CountWidth - Spacing * 2.0f;
 
 	ImGui::SetNextItemWidth(ComboWidth);
-	ImGui::Combo("##ActorType", &SelectedIndex, Items, IM_ARRAYSIZE(Items));
+	ImGui::Combo("##ActorType", &SelectedIndex,
+		[](void*, int Index) { return SpawnableActorTypes[Index].Label; },
+		nullptr, IM_ARRAYSIZE(SpawnableActorTypes));
 
 	ImGui::SameLine();
 

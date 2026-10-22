@@ -20,7 +20,6 @@
 #include "Editor/EditorUI/EditorUI.h"
 #include "Editor/OutputLog/OutputLogPanel.h"
 #include "Editor/Details/DetailsPanel.h"
-#include "Editor/EditorControls/EditorControlsPanel.h"
 #include "Editor/Settings/SettingsPanel.h"
 #include "Editor/Viewports/ViewportsPanel.h"
 #include "Editor/LevelEditor/MultipleViewports/Adapter/MultipleViewportsAdapter.h"
@@ -155,7 +154,6 @@ private:
 	FOutputLogPanel* OutputLogPanel = nullptr;
 
 	FDetailsPanel* DetailsPanel = nullptr;
-	FEditorControlsPanel* EditorControlsPanel = nullptr;
 	FSettingsPanel* SettingsPanel = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
 	FMultipleViewportsAdapter MultipleViewportsAdapter;
@@ -167,7 +165,13 @@ private:
 	UWorld* PlayWorld = nullptr;
 	// PIE 시작 시점의 편집 View. 별도 창이면 Adapter의 ExternalViewIndex다. PIE가 아니면 InvalidViewIndex다.
 	int32 PIEViewIndex = InvalidViewIndex;
-	int32 PrevShadowCount[5] = { -1, -1, -1, -1, -1 };
+	// 그림자 아틀라스는 모든 View가 하나를 함께 쓴다. 마지막으로 아틀라스를 그린 월드와 그림자 목록을 기억해
+	// 다음 View가 같은 내용을 필요로 할 때만 다시 그리지 않는다. 목록은 아틀라스 배치 전의 값이다.
+	const UWorld* ShadowAtlasWorld = nullptr;
+	TArray<FShadowInfo> ShadowAtlasInfos;
+	// 이번 프레임에 아틀라스를 그렸는지. 씬 변경 표시(Shadow Dirty)는 모든 View를 그린 뒤 지워지므로,
+	// 이번 프레임에 이미 다시 그렸다면 표시가 남아 있어도 같은 목록은 재사용할 수 있다.
+	bool bShadowAtlasRenderedThisFrame = false;
 
 	// Play 버튼이 다음 세션을 띄울 위치
 	EPlayModeType PlayMode = EPlayModeType::InViewport;
@@ -219,6 +223,11 @@ private:
 	FEditorCommand Paste;
 	FEditorCommand Duplicate;
 	FEditorCommand FocusSelection;
+	// Space: 기즈모 모드를 이동 → 회전 → 크기 순으로 바꾼다.
+	FEditorCommand CycleGizmoMode;
+
+	// 레벨 툴바의 Add 메뉴. 편집 중인 View 카메라 앞에 스폰하고 새 액터를 선택한다.
+	void SpawnActorFromToolbar(UClass* Class);
 	TArray<uint8> CopiedActorData;
 
 	// 다중 선택 기즈모 드래그를 시작한 순간의 월드 Transform. 0번은 Primary 액터의 루트다.

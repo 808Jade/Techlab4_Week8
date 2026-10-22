@@ -2,19 +2,12 @@
 #include "Editor/EditorUI/EditorPanel.h"
 
 #include "Editor/Gizmo/Gizmo.h"
-
-#include "GameFramework/Actor/ParticleActor.h"
-#include "GameFramework/Actor/StaticMeshActor.h"
-#include "GameFramework/Actor/TextRenderActor.h"
-#include "GameFramework/Actor/ExponentialHeightFogActor.h"
-#include "GameFramework/Actor/AmbientLightActor.h"
-#include "GameFramework/Actor/DirectionalLightActor.h"
-#include "GameFramework/Actor/PointLightActor.h"
-#include "GameFramework/Actor/SpotLightActor.h"
+#include "Editor/LevelEditor/ActorSpawnList.h"
 
 class FMultipleViewportsAdapter;
 
 // 액터 생성과 카메라·기즈모 편집에 필요한 패널 상태를 보관한다.
+// 에디터는 같은 기능을 레벨 툴바와 뷰포트 상단 메뉴로 옮겨 이 패널을 쓰지 않는다. 지금은 Benchmark 앱만 쓴다.
 class FEditorControlsPanel : public IEditorPanel
 {
 public:
@@ -33,28 +26,12 @@ public:
 
 	int32 SelectedIndex = 0;
 
-	const char* Items[9] ={"Actor", "StaticMesh","Particle","Text","ExponentialHeightFog",
-		"AmbientLight","DirectionalLight","PointLight","SpotLight"};
-
 	FGizmo* Gizmo = nullptr;
 	int32 GizmoSelectedIndex = 0;
 	const char* GizmoItems[3] ={"Location","Rotation","Scale"};
 
 	int32 SpaceSelectedIndex = 0;
 	const char* SpaceItems[2] ={"Local","World"};
-
-	TArray<UClass*> Classes
-	{
-		AActor::StaticClass(),
-		AStaticMeshActor::StaticClass(),  
-		AParticleActor::StaticClass(),
-		ATextRenderActor::StaticClass(),
-		AExponentialHeightFogActor::StaticClass(),
-		AAmbientLightActor::StaticClass(),
-		ADirectionalLightActor::StaticClass(),
-		APointLightActor::StaticClass(),
-		ASpotLightActor::StaticClass()
-	};
 
     void SetViewportAdapter(FMultipleViewportsAdapter* InAdapter) { ViewportAdapter = InAdapter; }
 
