@@ -18,12 +18,58 @@
 #include "GameFramework/Actor.h"
 #include "Core/EngineLog.h"
 #include <algorithm>
+#include <cmath>
 #include "Component/LightComponent.h"
 #include "Engine/LightSceneProxy.h"
 
 
 namespace
 {
+	// Details 패널 드래그의 마우스 1픽셀당 변화량. 헤더의 Step 콤보로 바꾼다.
+	// 드래그 중 Shift는 10배, Alt는 1/100배(ImGui 기본)이고 Ctrl+클릭은 값을 직접 입력한다.
+	float DragStep = 0.1f;
+	constexpr float DragStepOptions[] = { 1.0f, 0.1f, 0.01f, 0.001f };
+	constexpr const char* DragStepLabels[] = { "1", "0.1", "0.01", "0.001" };
+
+	// 단계보다 한 자리 더 표시해 단계만큼 바뀐 값이 표시 반올림으로 사라지지 않게 한다.
+	const char* GetDragFormat(const int32 MinDecimals)
+	{
+		static constexpr const char* Formats[] = { "%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f" };
+		const int32 StepDecimals = static_cast<int32>(std::lround(-std::log10(DragStep)));
+		const int32 Decimals = std::clamp(std::max(MinDecimals, StepDecimals + 1), 0, 5);
+		return Formats[Decimals];
+	}
+
+	// 이름이 칸보다 길면 말줄임표로 자르고, 마우스를 올리면 전체 이름을 보여 준다.
+	// 다음 위젯이 같은 줄의 LabelWidth 위치에서 시작하도록 커서를 옮겨 둔다.
+	void DrawPropertyLabel(const FString& Name, const float LabelWidth)
+	{
+		const float StartX = ImGui::GetCursorPosX();
+		const ImVec2 Min = ImGui::GetCursorScreenPos();
+		const float ClipWidth = std::max(1.0f, LabelWidth - ImGui::GetStyle().ItemSpacing.x);
+		const ImVec2 Max(Min.x + ClipWidth, Min.y + ImGui::GetFrameHeight());
+		const ImVec2 TextSize = ImGui::CalcTextSize(Name.c_str());
+
+		ImGui::Dummy({ ClipWidth, ImGui::GetFrameHeight() });
+		ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(),
+			{ Min.x, Min.y + ImGui::GetStyle().FramePadding.y }, Max, Max.x,
+			Name.c_str(), nullptr, &TextSize);
+		if (TextSize.x > ClipWidth && ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", Name.c_str());
+
+		ImGui::SameLine(StartX + LabelWidth);
+	}
+
+	// 트리 행 오른쪽 끝에 클래스 이름을 흐리게 표시한다. 바로 앞 TreeNode 이름과 겹치면 그리지 않는다.
+	void DrawClassNameRightAligned(const FString& Label, const char* ClassName, const ImVec2& RowStart, const float RowWidth)
+	{
+		const float LabelEndX = ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing()
+			+ ImGui::CalcTextSize(Label.c_str()).x;
+		const float TextX = RowStart.x + RowWidth - ImGui::CalcTextSize(ClassName).x;
+		if (TextX > LabelEndX + ImGui::GetStyle().ItemSpacing.x)
+			ImGui::GetWindowDrawList()->AddText(ImVec2(TextX, RowStart.y), IM_COL32(200, 200, 200, 255), ClassName);
+	}
+
 	// Linear로 저장된 색을 ImGui 색상 선택기로 편집한다.
 	// 선택기는 값을 그대로 화면에 그려 sRGB로 보이므로, 보여줄 때 sRGB로 인코딩하고 고른 값은 Linear로 디코딩해 저장한다.
 	// (언리얼 색상 선택기와 같은 방식. 알파는 색이 아니라 비율이라 변환하지 않는다)
@@ -70,7 +116,7 @@ namespace
 		// 드래그 슬라이더
 		ImGui::SameLine();
 		std::string dragID = "##" + _label;
-		isValueChanged |= ImGui::DragFloat(dragID.c_str(), &_value, _speed, _minValue, _maxValue, "%.2f");
+		isValueChanged |= ImGui::DragFloat(dragID.c_str(), &_value, _speed, _minValue, _maxValue, GetDragFormat(2));
 
 		return isValueChanged;
 
@@ -95,6 +141,7 @@ namespace
 
 			ImGui::TableNextRow();
 			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
 			ImGui::Text(_label.c_str()); // 왼쪽 열: 레이블
 
 			ImGui::TableSetColumnIndex(1);
@@ -103,17 +150,17 @@ namespace
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 2,0 });
 			ImGui::PushFont(boldFont);
 
-			isVectorChanged |= DrawAxisControl("X", _values[0], 0.1f, 0.0f, 0.0f, _resetValue, { 0.8f, 0.1f, 0.1f, 1.0f });
+			isVectorChanged |= DrawAxisControl("X", _values[0], DragStep, 0.0f, 0.0f, _resetValue, { 0.8f, 0.1f, 0.1f, 1.0f });
 
 			ImGui::PopItemWidth();
 
 			ImGui::SameLine();
-			isVectorChanged |= DrawAxisControl("Y", _values[1], 0.1f, 0.0f, 0.0f, _resetValue, { 0.1f, 0.8f, 0.1f, 1.0f });
+			isVectorChanged |= DrawAxisControl("Y", _values[1], DragStep, 0.0f, 0.0f, _resetValue, { 0.1f, 0.8f, 0.1f, 1.0f });
 
 			ImGui::PopItemWidth();
 
 			ImGui::SameLine();
-			isVectorChanged |= DrawAxisControl("Z", _values[2], 0.1f, 0.0f, 0.0f, _resetValue, { 0.1f, 0.1f, 0.8f, 1.0f });
+			isVectorChanged |= DrawAxisControl("Z", _values[2], DragStep, 0.0f, 0.0f, _resetValue, { 0.1f, 0.1f, 0.8f, 1.0f });
 
 			ImGui::PopItemWidth();
 
@@ -131,10 +178,10 @@ namespace
 
 	// FRotator의 V는 (Pitch, Yaw, Roll) 순서지만 엔진은 Roll=X, Pitch=Y, Yaw=Z축이므로
 	// X/Y/Z 칸이 실제 회전축과 맞도록 재배열해 편집한다.
-	bool DrawRotatorAsXYZ(const FString& _label, FRotator& _rotator)
+	bool DrawRotatorAsXYZ(const FString& _label, FRotator& _rotator, float _columnWidth)
 	{
 		float Euler[3] = { _rotator.Roll, _rotator.Pitch, _rotator.Yaw };
-		const bool isChanged = DrawVector3Controller(_label, Euler, 0.0f, 55.0f);
+		const bool isChanged = DrawVector3Controller(_label, Euler, 0.0f, _columnWidth);
 		if (isChanged)
 		{
 			_rotator.Roll = Euler[0];
@@ -698,13 +745,12 @@ namespace
 	}
 
 	// UClass에 등록된 프로퍼티를 타입에 맞는 위젯으로 그린다
-	void DrawProperty(UObject* Object, const FProperty& Property, ImFont* CustomFont)
+	void DrawProperty(UObject* Object, const FProperty& Property, ImFont* CustomFont, float LabelWidth)
 	{
 		void* ValuePtr = reinterpret_cast<char*>(Object) + Property.Offset;
 		const FString Label = "##" + Property.Name;
 
-		ImGui::Text(Property.Name.c_str());
-		ImGui::SameLine(120.0f);
+		DrawPropertyLabel(Property.Name, LabelWidth);
 		ImGui::SetNextItemWidth(-1.0f);
 
 		bool bChanged = false;
@@ -712,7 +758,7 @@ namespace
 		switch (Property.Type)
 		{
 		case EPropertyType::Float:
-			bChanged = ImGui::DragFloat(Label.c_str(), static_cast<float*>(ValuePtr), 0.1f);
+			bChanged = ImGui::DragFloat(Label.c_str(), static_cast<float*>(ValuePtr), DragStep, 0.0f, 0.0f, GetDragFormat(3));
 			break;
 		case EPropertyType::Int:
 			if (Property.HasAnyFlags(CPF_Pow2Combo))
@@ -751,7 +797,7 @@ namespace
 		case EPropertyType::Vector:
 		{
 			FVector* Value = static_cast<FVector*>(ValuePtr);
-			bChanged = ImGui::DragFloat3(Label.c_str(), Value->V, 0.1f);
+			bChanged = ImGui::DragFloat3(Label.c_str(), Value->V, DragStep, 0.0f, 0.0f, GetDragFormat(3));
 			break;
 		}
 		case EPropertyType::Rotator:
@@ -759,7 +805,7 @@ namespace
 			FRotator* Value = static_cast<FRotator*>(ValuePtr);
 			// Transform의 Rotation과 같은 X/Y/Z 축 순서로 보여준다.
 			float Euler[3] = { Value->Roll, Value->Pitch, Value->Yaw };
-			if (ImGui::DragFloat3(Label.c_str(), Euler, 0.1f))
+			if (ImGui::DragFloat3(Label.c_str(), Euler, DragStep, 0.0f, 0.0f, GetDragFormat(3)))
 			{
 				Value->Roll = Euler[0];
 				Value->Pitch = Euler[1];
@@ -772,7 +818,7 @@ namespace
 		case EPropertyType::Vector4:
 		{
 			FVector4* Value = static_cast<FVector4*>(ValuePtr);
-			bChanged = ImGui::DragFloat4(Label.c_str(), &Value->X, 0.1f);
+			bChanged = ImGui::DragFloat4(Label.c_str(), &Value->X, DragStep, 0.0f, 0.0f, GetDragFormat(3));
 			break;
 		}
 
@@ -819,9 +865,9 @@ namespace
 			FTransform Transform = *Value;
 			bool bChange = false;
 
-			bChanged |= DrawVector3Controller("Location", Value->Location.V, 0.0f, 55.0f);
-			bChanged |= DrawRotatorAsXYZ("Rotation", Value->Rotation);
-			bChanged |= DrawVector3Controller("Scale", Value->Scale.V, 1.0f, 55.0f);
+			bChanged |= DrawVector3Controller("Location", Value->Location.V, 0.0f, LabelWidth);
+			bChanged |= DrawRotatorAsXYZ("Rotation", Value->Rotation, LabelWidth);
+			bChanged |= DrawVector3Controller("Scale", Value->Scale.V, 1.0f, LabelWidth);
 
 			//if (bChange)
 			//{
@@ -880,6 +926,22 @@ namespace
 			ClassChain.Add(Class);
 		}
 
+		// 모든 클래스의 이름 칸을 가장 긴 이름에 맞춰 같은 너비로 정렬한다.
+		// 값 칸이 너무 좁아지지 않도록 패널 너비의 절반까지만 늘리고, 넘치는 이름은 말줄임표로 자른다.
+		constexpr float MinLabelWidth = 90.0f;
+		constexpr float MaxLabelWidthRatio = 0.5f;
+		float LabelWidth = std::max(MinLabelWidth, ImGui::CalcTextSize("Location").x);
+		for (UClass* Class : ClassChain)
+		{
+			for (const FProperty& Property : Class->GetProperties())
+			{
+				if (Property.HasAnyFlags(CPF_Edit))
+					LabelWidth = std::max(LabelWidth, ImGui::CalcTextSize(Property.Name.c_str()).x);
+			}
+		}
+		LabelWidth += ImGui::GetStyle().ItemSpacing.x * 2.0f;
+		LabelWidth = std::min(LabelWidth, std::max(MinLabelWidth, ImGui::GetContentRegionAvail().x * MaxLabelWidthRatio));
+
 		// 기반 클래스부터 표시
 		for (auto It = ClassChain.rbegin(); It != ClassChain.rend(); ++It)
 		{
@@ -912,7 +974,7 @@ namespace
 
 					const bool bReadOnly = Property.HasAnyFlags(CPF_EditConst);
 					if (bReadOnly) ImGui::BeginDisabled();
-					DrawProperty(Object, Property, CustomFont);
+					DrawProperty(Object, Property, CustomFont, LabelWidth);
 					if (bReadOnly) ImGui::EndDisabled();
 				}
 			}
@@ -932,6 +994,25 @@ namespace
 		if (ImGui::Button("Add Component"))
 		{
 			ImGui::OpenPopup("AddComponentPopup");
+		}
+
+		// 드래그 단계는 오른쪽 끝에 둔다.
+		{
+			constexpr float StepComboWidth = 70.0f;
+			const char* StepText = "Drag Step";
+			const float GroupWidth = ImGui::CalcTextSize(StepText).x + ImGui::GetStyle().ItemSpacing.x + StepComboWidth;
+			ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - GroupWidth));
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(StepText);
+			ImGui::SameLine();
+
+			int32 StepIndex = 1;
+			for (int32 Index = 0; Index < IM_ARRAYSIZE(DragStepOptions); ++Index)
+				if (DragStepOptions[Index] == DragStep) StepIndex = Index;
+			ImGui::SetNextItemWidth(StepComboWidth);
+			if (ImGui::Combo("##DragStep", &StepIndex, DragStepLabels, IM_ARRAYSIZE(DragStepLabels)))
+				DragStep = DragStepOptions[StepIndex];
+			ImGui::SetItemTooltip("Drag change per pixel\nShift: x10   Alt: x0.01   Ctrl+Click: type a value");
 		}
 
 		if (ImGui::BeginPopup("AddComponentPopup"))
@@ -1166,8 +1247,7 @@ void FDetailsPanel::DrawCompoenetList(AActor* SelectedActor, UActorComponent*& O
 		}
 
 		const FString ClassName = std::format("({})", ActorComp->GetClass()->Name);
-		const float TextX = RowStart.x + RowWidth - ImGui::CalcTextSize(ClassName.c_str()).x;
-		ImGui::GetWindowDrawList()->AddText(ImVec2(TextX, RowStart.y), IM_COL32(200, 200, 200, 255), ClassName.c_str());		
+		DrawClassNameRightAligned(Label, ClassName.c_str(), RowStart, RowWidth);
 
 		ImGui::PopID();
 	}
@@ -1251,8 +1331,7 @@ void FDetailsPanel::DrawSceneComponentNode(USceneComponent* Component, USceneCom
 		}
 
 		const FString ClassName = std::format("({})", Component->GetClass()->Name);
-		const float TextX = RowStart.x + RowWidth - ImGui::CalcTextSize(ClassName.c_str()).x;
-		ImGui::GetWindowDrawList()->AddText(ImVec2(TextX, RowStart.y), IM_COL32(200, 200, 200, 255), ClassName.c_str());
+		DrawClassNameRightAligned(Label, ClassName.c_str(), RowStart, RowWidth);
 	}
 	else
 	{

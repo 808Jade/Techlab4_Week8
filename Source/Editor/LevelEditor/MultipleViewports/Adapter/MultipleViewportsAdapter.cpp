@@ -29,6 +29,7 @@ constexpr float MaximumCameraPitchDegrees = 89.0f;
 constexpr float MaximumRotationDegreesPerFrame = 45.0f;
 constexpr float MouseWheelDeltaPerStep = 120.0f;
 constexpr float OrthographicZoomFactorPerStep = 0.9f;
+constexpr float CameraMoveSpeedFactorPerStep = 1.25f;
 constexpr float MinimumOrthographicWidth = 0.01f;
 // 양방향 깊이 보정 뒤에도 절두체 평면 법선이 Core epsilon(1e-6)보다 충분히 크게 유지되게 한다.
 // 정사각 View의 최악 조건에서 깊이 계수는 약 1 / (4 * sqrt(2) * Span)이다.
@@ -376,7 +377,7 @@ void FMultipleViewportsAdapter::ApplySplitterDrag(const EDragAxis Axis, const fl
 void FMultipleViewportsAdapter::UpdateInput(
     const float DeltaTime,
     const FVector2 LocalMousePosition,
-    const float MoveSpeed,
+    float& InOutMoveSpeed,
     const float MouseSensitivity)
 {
     const int WheelDelta = FInputSystem::GetWheelDelta(); // 이 Hook은 프레임마다 정확히 한 번만 호출한다.
@@ -401,6 +402,18 @@ void FMultipleViewportsAdapter::UpdateInput(
     FCameraMoveInput Input{};
     const bool bCameraCaptured = FInputSystem::IsMouseDown(EMouseButton::Right) &&
         InputState.CapturedViewIndex == ActiveViewIndex;
+    // 우클릭으로 카메라를 조작하는 동안 휠은 줌 대신 이동 속도를 배율로 바꾼다.
+    if (bCameraCaptured && WheelDelta != 0)
+    {
+        const float WheelSteps = static_cast<float>(WheelDelta) / MouseWheelDeltaPerStep;
+        InOutMoveSpeed = FMath::Clamp(
+            InOutMoveSpeed * std::pow(CameraMoveSpeedFactorPerStep, WheelSteps),
+            MinimumCameraMoveSpeed,
+            MaximumCameraMoveSpeed);
+    }
+    const float MoveSpeed = InOutMoveSpeed;
+    // 휠은 Capture 중이 아닐 때, 마우스 아래의 선택 View에만 줌으로 전달한다.
+    const int ZoomWheelDelta = !bCameraCaptured && PointerViewIndex == ActiveViewIndex ? WheelDelta : 0;
     const float ForwardAxis = bCameraCaptured ? AxisValue(EKeyCode::W, EKeyCode::S) : 0.0f;
     const float RightAxis = bCameraCaptured ? AxisValue(EKeyCode::D, EKeyCode::A) : 0.0f;
     const float VerticalAxis = bCameraCaptured ? AxisValue(EKeyCode::E, EKeyCode::Q) : 0.0f;
@@ -439,8 +452,7 @@ void FMultipleViewportsAdapter::UpdateInput(
     if (bOrthographic)
     {
         // 패널 밖이나 다른 View 위의 휠 입력은 마지막 선택 카메라에 전달하지 않는다.
-        const int RoutedWheelDelta = bCameraCaptured || PointerViewIndex == ActiveViewIndex ? WheelDelta : 0;
-        const float WheelSteps = static_cast<float>(RoutedWheelDelta) / MouseWheelDeltaPerStep;
+        const float WheelSteps = static_cast<float>(ZoomWheelDelta) / MouseWheelDeltaPerStep;
         Views.Cameras[ActiveViewIndex].Projection.OrthoWidth = std::max(
             MinimumOrthographicWidth,
             Views.Cameras[ActiveViewIndex].Projection.OrthoWidth *
@@ -451,8 +463,7 @@ void FMultipleViewportsAdapter::UpdateInput(
     }
     else
     {
-        Input.ZoomDelta = bCameraCaptured || PointerViewIndex == ActiveViewIndex
-            ? static_cast<float>(WheelDelta) * PerspectiveWheelSpeed : 0.0f;
+        Input.ZoomDelta = static_cast<float>(ZoomWheelDelta) * PerspectiveWheelSpeed;
     }
     FViewCamera UpdatedCamera = ApplyCameraMovement(Views.Cameras[ActiveViewIndex], Input, DeltaTime);
     if (bOrthographic && bCameraCaptured)

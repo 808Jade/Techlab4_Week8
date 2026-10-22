@@ -62,7 +62,8 @@ public:
     // Splitter Drag 픽셀을 Core 비율 계산에 전달해 레이아웃 상태를 갱신한다.
     void ApplySplitterDrag(EDragAxis Axis, float DeltaPixels, FVector2 WindowSize);
     // 우클릭 Capture View에 이동·Euler Yaw/Pitch·줌 입력을 적용한다.
-    void UpdateInput(float DeltaTime, FVector2 LocalMousePosition, float MoveSpeed, float MouseSensitivity);
+    // Capture 중 휠은 줌 대신 InOutMoveSpeed를 바꾼다.
+    void UpdateInput(float DeltaTime, FVector2 LocalMousePosition, float& InOutMoveSpeed, float MouseSensitivity);
     // Tick 뒤 현재 World의 ID·경계만 캡처하며 피킹은 Component에 위임한다.
     void CaptureWorld(UWorld& World);
 

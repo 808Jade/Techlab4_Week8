@@ -374,11 +374,16 @@ void UEditorEngine::UpdateMultipleViewportState(const float DeltaTime)
 		SettingsPanel->GetMutableSettings().MultipleViewportsVertical = Ratio.Vertical;
 	}
 
+	// 우클릭 + 휠로 바뀐 이동 속도는 Settings에 바로 저장되고, 바뀐 View에 잠시 표시한다.
+	float& CameraSpeed = SettingsPanel->GetMutableSettings().CameraSpeed;
+	const float PreviousCameraSpeed = CameraSpeed;
 	MultipleViewportsAdapter.UpdateInput(
 		DeltaTime,
 		LocalMousePosition,
-		SettingsPanel->GetSettings().CameraSpeed,
+		CameraSpeed,
 		SettingsPanel->GetSettings().MouseSensitivity);
+	if (CameraSpeed != PreviousCameraSpeed)
+		ViewportsPanel->ShowCameraSpeed(MultipleViewportsAdapter.GetActiveViewIndex(), CameraSpeed);
 	// 겹친 창은 Hover 선택에서 제외하고 우클릭 Capture를 우선한다.
 	if (ViewportsPanel->IsHovered() || MultipleViewportsAdapter.GetCapturedViewIndex() != InvalidViewIndex)
 		MultipleViewportsAdapter.SetEditorViewIndex(MultipleViewportsAdapter.GetActiveViewIndex());

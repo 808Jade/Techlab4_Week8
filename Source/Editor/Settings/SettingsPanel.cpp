@@ -125,7 +125,8 @@ void FSettingsPanel::OnRender()
 
 	UCameraComponent* CamCom = World->GetMainCamera()->GetCameraComponent();
 
-	ImGui::SliderFloat("Move Speed", &Settings.CameraSpeed, 0.1f, 10.0f, "%.2f");
+	// 뷰포트에서 우클릭 + 휠로도 같은 값을 바꾼다.
+	ImGui::SliderFloat("Move Speed", &Settings.CameraSpeed, MinimumCameraMoveSpeed, MaximumCameraMoveSpeed, "%.2f", ImGuiSliderFlags_Logarithmic);
 	CamCom->SetMoveSpeed(Settings.CameraSpeed);
 
 	ImGui::SliderFloat("Rotate Sensitivity", &Settings.MouseSensitivity, 0.01f, 1.0f, "%.2f");

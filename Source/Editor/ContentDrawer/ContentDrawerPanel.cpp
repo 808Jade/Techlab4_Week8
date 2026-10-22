@@ -56,6 +56,9 @@ void FContentDrawerPanel::OnRender()
 
 	ImGui::BeginChild("AssetGridView");
 	{
+		DrawPathBar();
+		ImGui::Separator();
+
 		// 그리드 레이아웃 계산
 		float padding = 16.0f;
 		float thumbnailSize = 80.0f;
@@ -162,6 +165,44 @@ void FContentDrawerPanel::OnRender()
 	}
 	ImGui::EndChild();
 	ImGui::End();
+}
+
+void FContentDrawerPanel::DrawPathBar()
+{
+	// 순회 중에 CurrentPath를 바꾸지 않도록 이동할 폴더만 기록해 두고 마지막에 반영한다.
+	fs::path NextPath = CurrentPath;
+
+	// 상위 폴더로 이동. 루트에서는 비활성화한다.
+	ImGui::BeginDisabled(CurrentPath == AssetRootPath);
+	if (ImGui::ArrowButton("##ParentFolder", ImGuiDir_Left))
+		NextPath = CurrentPath.parent_path();
+	ImGui::EndDisabled();
+	ImGui::SetItemTooltip("Parent Folder");
+
+	ImGui::SameLine();
+	if (ImGui::SmallButton(AssetRootPath.string().c_str()))
+		NextPath = AssetRootPath;
+
+	fs::path SegmentPath = AssetRootPath;
+	int32 SegmentIndex = 0;
+	for (const fs::path& Segment : fs::relative(CurrentPath, AssetRootPath))
+	{
+		if (Segment == ".")
+			continue;
+
+		SegmentPath /= Segment;
+		ImGui::SameLine();
+		ImGui::TextDisabled(">");
+		ImGui::SameLine();
+
+		// 폴더 이름이 같아도 위치가 다르면 다른 버튼이 되도록 순번으로 ID를 나눈다.
+		ImGui::PushID(SegmentIndex++);
+		if (ImGui::SmallButton(Segment.string().c_str()))
+			NextPath = SegmentPath;
+		ImGui::PopID();
+	}
+
+	CurrentPath = NextPath;
 }
 
 void FContentDrawerPanel::RenderFolderTree(const fs::path& Path, fs::path& SelectedPath)

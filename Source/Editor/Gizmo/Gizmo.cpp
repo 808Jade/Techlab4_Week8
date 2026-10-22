@@ -208,11 +208,16 @@ void FGizmo::BeginDrag(int Axis, const FRay& MouseRay, const FVector2& MousePos)
 		DragPlaneNormal = Ortho.Cross(axis).Normalized();
 	}
 
+	// 원근 View의 기즈모는 카메라 앞 일정 거리에 그려지므로, 그 위치의 평면으로 이동량을 재면
+	// 대상이 멀수록 마우스보다 덜 움직인다. 이동은 대상 깊이의 평면에서 재야 커서와 함께 움직인다.
+	DragStartWorldLocation = Target->GetWorldLocation();
+	DragPlaneOrigin = Mode == EGizmoMode::Location ? DragStartWorldLocation : DragStartRenderLocation;
+
 	float t;
-	if (RayIntersectsPlane(MouseRay, DragStartRenderLocation, DragPlaneNormal, t))
+	if (RayIntersectsPlane(MouseRay, DragPlaneOrigin, DragPlaneNormal, t))
 		DragStartPoint = MouseRay.Origin + MouseRay.Direction * t;
 	else
-		DragStartPoint = DragStartRenderLocation;
+		DragStartPoint = DragPlaneOrigin;
 
 	if (Mode == EGizmoMode::Rotation)
 		DragStartAngle = ComputeAngleOnPlane(DragStartPoint, Axis);
@@ -222,15 +227,16 @@ void FGizmo::BeginDrag(int Axis, const FRay& MouseRay, const FVector2& MousePos)
 void FGizmo::UpdateDrag(const FRay& MouseRay, const FVector2& MousePos)
 {
 	float t;
-	if (!RayIntersectsPlane(MouseRay, DragStartRenderLocation, DragPlaneNormal, t))
+	if (!RayIntersectsPlane(MouseRay, DragPlaneOrigin, DragPlaneNormal, t))
 		return;
 
 	FVector current = MouseRay.Origin + MouseRay.Direction * t;
 
 	if (DraggingAxis == AXIS_SCREEN && Mode != EGizmoMode::Rotation)
 	{
+		// 이동량은 월드 공간에서 쟀으므로 부모가 있어도 월드 위치로 적용한다.
 		if (Mode == EGizmoMode::Location)
-			Target->SetRelativeLocation(DragStartLocation + (current - DragStartPoint));
+			Target->SetWorldLocation(DragStartWorldLocation + (current - DragStartPoint), false);
 		else
 		{
 			float dx = MousePos.X - DragStartMousePos.X;
@@ -263,7 +269,7 @@ void FGizmo::UpdateDrag(const FRay& MouseRay, const FVector2& MousePos)
 	float amount = delta.Dot(DragAxisDirection);
 
 	if (Mode == EGizmoMode::Location)
-		Target->SetRelativeLocation(DragStartLocation + DragAxisDirection * amount);
+		Target->SetWorldLocation(DragStartWorldLocation + DragAxisDirection * amount, false);
 	else   // Scale
 	{
 		// 기즈모 크기 기준으로 나눠 직교 줌과 상관없이 같은 화면 드래그에 같은 배율이 되게 한다.

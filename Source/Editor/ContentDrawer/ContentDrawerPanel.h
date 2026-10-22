@@ -18,6 +18,9 @@ public:
 	void RenderFolderTree(const fs::path& Path, fs::path& SelectedPath);
 
 private:
+	// 현재 폴더를 Assets > A > B 형태로 그린다. 조각을 누르면 그 폴더로 이동한다.
+	void DrawPathBar();
+
 	fs::path AssetRootPath = "Assets";
 	fs::path CurrentPath = "Assets";
 

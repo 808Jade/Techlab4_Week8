@@ -42,6 +42,8 @@ public:
 	bool ConsumeLayoutRequest(ELayoutMode& OutMode, int32& OutSingleViewIndex);
 	// UI에서 발생한 View별 Camera Preset 요청을 한 번 소비하도록 반환한다.
 	bool ConsumeCameraPresetRequest(int32& OutViewIndex, EMultipleViewportsCameraPreset& OutPreset);
+	// 카메라 이동 속도가 바뀌었을 때 해당 View 왼쪽 아래에 잠시 값을 표시한다.
+	void ShowCameraSpeed(int32 ViewIndex, float Speed);
 
 private:
 	FMultipleViewportsAdapter* ViewportAdapter = nullptr;
@@ -65,6 +67,8 @@ private:
 	void ResizeSlot(FViewSlot& Slot, uint32 Width, uint32 Height);
 	// 콘솔 stat 명령으로 켜진 항목을 해당 View의 좌상단에 겹쳐 그린다.
 	void DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMin) const;
+	// ShowCameraSpeed로 요청된 속도 표시가 아직 유효하면 그린다.
+	void DrawCameraSpeedNotice(ImDrawList* DrawList) const;
 
 	FViewSlot Slots[4]{};
 	ImVec2 ContentOrigin{};
@@ -86,4 +90,7 @@ private:
 	int32 RequestedSingleViewIndex = 0;
 	int32 PendingCameraPresetViewIndex = InvalidViewIndex;
 	EMultipleViewportsCameraPreset PendingCameraPreset = EMultipleViewportsCameraPreset::Perspective;
+	int32 CameraSpeedViewIndex = InvalidViewIndex;
+	float CameraSpeedValue = 0.0f;
+	double CameraSpeedShownTime = 0.0;
 };

@@ -88,6 +88,9 @@ private:
 	FVector DragStartRenderLocation;
 
 	FVector DragPlaneNormal;
+	// 드래그 평면이 지나는 점. 이동은 실제 대상 위치, 회전·크기는 화면 고정 크기로 그린 기즈모 위치다.
+	FVector DragPlaneOrigin;
+	FVector DragStartWorldLocation;
 
 	FVector ViewCameraLocation{};
 	bool bViewCameraOrthographic = false;

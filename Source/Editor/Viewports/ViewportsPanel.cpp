@@ -26,6 +26,9 @@ constexpr float StatOverlayPadding = 6.0f;
 constexpr ImU32 StatOverlayBackgroundColor = IM_COL32(0, 0, 0, 140);
 constexpr ImU32 TitleColor = IM_COL32(255, 210, 60, 255);
 constexpr ImU32 ValueColor = IM_COL32(235, 235, 235, 255);
+
+// Camera Speed 표시
+constexpr double CameraSpeedNoticeSeconds = 1.5;
 }
 
 // 네 View의 렌더 타깃을 최소 크기로 초기화한다.
@@ -143,6 +146,35 @@ bool FViewportsPanel::ConsumeCameraPresetRequest(int32& OutViewIndex, EMultipleV
 	OutPreset = PendingCameraPreset;
 	PendingCameraPresetViewIndex = InvalidViewIndex;
 	return true;
+}
+
+// 표시할 View와 값을 기록하고 표시 시작 시각을 갱신한다.
+void FViewportsPanel::ShowCameraSpeed(const int32 ViewIndex, const float Speed)
+{
+	CameraSpeedViewIndex = ViewIndex;
+	CameraSpeedValue = Speed;
+	CameraSpeedShownTime = ImGui::GetTime();
+}
+
+// View 왼쪽 아래에 반투명 배경과 함께 이동 속도를 그린다.
+void FViewportsPanel::DrawCameraSpeedNotice(ImDrawList* DrawList) const
+{
+	if (CameraSpeedViewIndex < 0 || CameraSpeedViewIndex >= 4 || !Slots[CameraSpeedViewIndex].bActive)
+		return;
+	if (ImGui::GetTime() - CameraSpeedShownTime > CameraSpeedNoticeSeconds)
+		return;
+
+	const FRect& Rect = Slots[CameraSpeedViewIndex].Rect;
+	const FString Text = std::format("Camera Speed  {:.2f}", CameraSpeedValue);
+	const ImVec2 TextSize = ImGui::CalcTextSize(Text.c_str());
+	const ImVec2 TextMin{
+		ContentOrigin.x + Rect.X + StatOverlayMargin + StatOverlayPadding,
+		ContentOrigin.y + Rect.Y + Rect.Height - StatOverlayMargin - StatOverlayPadding - TextSize.y};
+	DrawList->AddRectFilled(
+		{TextMin.x - StatOverlayPadding, TextMin.y - StatOverlayPadding},
+		{TextMin.x + TextSize.x + StatOverlayPadding, TextMin.y + TextSize.y + StatOverlayPadding},
+		StatOverlayBackgroundColor, 4.0f);
+	DrawList->AddText(TextMin, ValueColor, Text.c_str());
 }
 
 // View Texture와 Splitter·Layout·Preset UI를 그리고 요청을 기록한다.
@@ -332,6 +364,7 @@ void FViewportsPanel::OnRender()
 			ContentOrigin.x + Slots[ViewIndex].Rect.X,
 			ContentOrigin.y + Slots[ViewIndex].Rect.Y});
 	}
+	DrawCameraSpeedNotice(DrawList);
 
 	ImGui::End();
 	ImGui::PopStyleVar();
