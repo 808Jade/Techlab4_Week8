@@ -24,8 +24,13 @@ public:
     void AddActor(AActor* Actor);
     void ClearActors();
 
-    using Super::Serialize;   
+    using Super::Serialize;
     virtual void Serialize(FStructuredArchive::FRecord Record) override;
+
+    // 액터 하나를 클래스 이름과 함께 Record에 저장한다. 씬 저장과 에디터 복사가 같은 형식을 쓴다.
+    static void SaveActorRecord(FStructuredArchive::FRecord ActorRecord, AActor* Actor);
+    // Record의 클래스로 이 레벨에 액터를 스폰하고 값을 불러온다. 클래스를 모르면 nullptr이다.
+    AActor* SpawnActorFromRecord(FStructuredArchive::FRecord ActorRecord);
 
     //virtual void Serialize(FArchive& Ar) override; // Save Level 구현예정
 

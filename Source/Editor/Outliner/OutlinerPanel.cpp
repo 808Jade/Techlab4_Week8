@@ -80,12 +80,6 @@ void FOutlinerPanel::DrawActors(ULevel* Level)
 				DrawActorNode(Actor);
 		}
     }
-
-    if (PendingDeleteActor)
-    {
-        DeleteActorCallback(PendingDeleteActor);
-        PendingDeleteActor = nullptr;
-    }
 }
 
 // Actor를 ImGui TreeNode로 출력
@@ -103,19 +97,24 @@ void FOutlinerPanel::DrawActorNode(AActor* Actor)
         ImGuiTreeNodeFlags_SpanAvailWidth;
 
     // Actor 선택 시 UI 선택 상태
-    if (SelectedObject == Actor)
+    if (Selection->IsSelected(Actor))
         Flags |= ImGuiTreeNodeFlags_Selected;
 
     ImGui::TreeNodeEx(Actor, Flags, "%s", ActorName.c_str());
 
-    // UI에서 Actor 클릭
+    // UI에서 Actor 클릭. Shift·Ctrl을 누르고 있으면 기존 선택에 더하거나 뺀다.
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
     {
-        SelectActor(Actor);
+        const ImGuiIO& IO = ImGui::GetIO();
+        if (IO.KeyShift || IO.KeyCtrl)
+            ToggleActorSelection(Actor);
+        else
+            SelectActor(Actor);
     }
 
     if (ImGui::BeginPopupContextItem())
     {
+        // 선택된 액터에서 열면 선택 전체를, 아니면 그 액터만 지운다 (삭제 콜백이 판단한다).
         if (ImGui::MenuItem("Delete"))
         {
             PendingDeleteActor = Actor; // 여기서는 바로 삭제 X
@@ -123,34 +122,36 @@ void FOutlinerPanel::DrawActorNode(AActor* Actor)
 
         ImGui::EndPopup();
     }
-    
+
 }
 
 // 선택 Object 변경
 void FOutlinerPanel::SelectActor(AActor* Actor)
 {
-    if (!Actor)
-    {
-        SelectedObject = nullptr;
+    Selection->Select(Actor);
 
-        if (Callback)
-            Callback(nullptr);
+    if (Actor)
+        HTR_LOG(Info, "{} UUID {} is selected", Actor->GetName(), Actor->GetUUID());
 
-        return;
-    }
-
-    SelectedObject = Actor;
-
-    HTR_LOG(Info, "{} UUID {} is selected", SelectedObject->GetName(), SelectedObject->GetUUID());
-
-    USceneComponent* Scene = Cast<USceneComponent>(Actor->GetRootComponent());
-
-    if (Callback)
-        Callback(Scene);
+    NotifySelectionCallback();
 }
 
+void FOutlinerPanel::ToggleActorSelection(AActor* Actor)
+{
+    Selection->Toggle(Actor);
+    NotifySelectionCallback();
+}
+
+void FOutlinerPanel::NotifySelectionCallback() const
+{
+    if (!Callback)
+        return;
+
+    AActor* Primary = Selection->GetPrimary();
+    Callback(Primary ? Cast<USceneComponent>(Primary->GetRootComponent()) : nullptr);
+}
 
 AActor* FOutlinerPanel::GetSelectedActor() const
 {
-    return Cast<AActor>(SelectedObject);
+    return Selection->GetPrimary();
 }

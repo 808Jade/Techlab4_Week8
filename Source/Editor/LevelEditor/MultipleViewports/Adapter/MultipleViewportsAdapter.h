@@ -12,7 +12,7 @@
 #include "Containers/Map.h"
 #include "Containers/Array.h"
 
-class FOutlinerPanel;
+class AActor;
 class UPrimitiveComponent;
 class UStaticMeshComponent;
 class UWorld;
@@ -110,8 +110,8 @@ public:
     void BuildRenderQueue(int32 ViewIndex, FRenderQueue& OutQueue);
     // 활성 View Ray를 World·Component 피킹으로 전달하고 마지막 결과를 보관한다.
     FPickHit PickActiveView(FVector2 LocalMousePosition, UWorld& World);
-    // 마지막 Hit Component의 Owner를 찾아 Outliner 선택에 반영한다.
-    void ApplyLastPickToOutliner(FOutlinerPanel& OutlinerPanel) const;
+    // 마지막 Hit Component의 Owner를 찾는다. 빗나갔거나 이미 삭제됐으면 nullptr이다.
+    AActor* FindLastPickedActor() const;
 
     // 외부에서 읽은 Split 비율을 Core 허용 범위로 제한해 저장한다.
     void SetSplitRatio(const FSplitRatio& Value);

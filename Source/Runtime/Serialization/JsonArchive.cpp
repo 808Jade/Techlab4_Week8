@@ -78,6 +78,72 @@ bool FJsonArchive::LoadWorldFromBytes(UWorld* World, const TArray<uint8>& Bytes)
 	return !Reader.IsError();
 }
 
+bool FJsonArchive::SaveActorsToBytes(const TArray<AActor*>& Actors, TArray<uint8>& OutBytes)
+{
+	// 씬 저장과 같이 Transient 액터(에디터 전용 등)는 복사하지 않는다.
+	TArray<AActor*> SavedActors;
+	for (AActor* Actor : Actors)
+	{
+		if (Actor && !Actor->HasAnyFlags(EObjectFlags::RF_Transient))
+			SavedActors.Add(Actor);
+	}
+	if (SavedActors.IsEmpty())
+		return false;
+
+	OutBytes.Reset();
+	FMemoryWriter Writer(OutBytes);
+	{
+		FJsonArchiveOutputFormatter Formatter(Writer);
+		FStructuredArchive Ar(Formatter);
+
+		FStructuredArchive::FRecord Root = Ar.Open().EnterRecord();
+		int32 Version = SceneVersion;
+		Root << SA_VALUE("Version", Version);
+
+		int32 Num = SavedActors.Num();
+		FStructuredArchive::FArray ActorArray = Root.EnterArray("Actors", Num);
+		for (AActor* Actor : SavedActors)
+		{
+			ULevel::SaveActorRecord(ActorArray.EnterElement().EnterRecord(), Actor);
+		}
+
+		Ar.Close();
+	}
+
+	return !Writer.IsError();
+}
+
+bool FJsonArchive::SpawnActorsFromBytes(UWorld* World, const TArray<uint8>& Bytes, TArray<AActor*>& OutActors)
+{
+	OutActors.Reset();
+	if (!World || Bytes.IsEmpty())
+		return false;
+
+	FMemoryReader Reader(Bytes);
+	FJsonArchiveInputFormatter Formatter(Reader);
+	if (Reader.IsError())
+		return false;
+
+	FStructuredArchive Ar(Formatter);
+	FStructuredArchive::FRecord Root = Ar.Open().EnterRecord();
+
+	int32 Version = 0;
+	Root << SA_VALUE("Version", Version);
+	if (Version != SceneVersion)
+		return false;
+
+	int32 Num = 0;
+	FStructuredArchive::FArray ActorArray = Root.EnterArray("Actors", Num);
+	for (int32 i = 0; i < Num; ++i)
+	{
+		if (AActor* Actor = World->GetPersistentLevel()->SpawnActorFromRecord(ActorArray.EnterElement().EnterRecord()))
+			OutActors.Add(Actor);
+	}
+	Ar.Close();
+
+	return !Reader.IsError();
+}
+
 bool FJsonArchive::SaveWorld(UWorld* World, const FString& Path)
 {
 	TArray<uint8> Bytes;

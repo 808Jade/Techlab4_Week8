@@ -10,13 +10,14 @@
 #include "Component/ParticleSubUVComponent.h"
 #include "Core/Stats/LightweightStats.h"
 #include "Core/Stats/EditorStats.h"
-#include "Editor/Outliner/OutlinerPanel.h"
 #include "Editor/Rendering/GridRenderer.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/World.h"
 #include "Input/InputSystem.h"
 #include "UObject/UObjectIterator.h"
 #include "Asset/LOD/StaticMeshLODSelector.h"
+
+#include <imgui.h>
 
 #include <algorithm>
 #include <cassert>
@@ -798,21 +799,18 @@ FPickHit FMultipleViewportsAdapter::PickActiveView(const FVector2 LocalMousePosi
     return LastPick;
 }
 
-// 렌더 캡처 목록에 없는 컴포넌트도 Hit ID로 찾아 Owner를 선택한다. 삭제된 ID는 선택을 해제한다.
-void FMultipleViewportsAdapter::ApplyLastPickToOutliner(FOutlinerPanel& OutlinerPanel) const
+// 렌더 캡처 목록에 없는 컴포넌트도 Hit ID로 찾아 Owner를 반환한다.
+AActor* FMultipleViewportsAdapter::FindLastPickedActor() const
 {
-    if (LastPick.bHit)
+    if (!LastPick.bHit)
+        return nullptr;
+
+    for (TObjectIterator<UPrimitiveComponent> It; It; ++It)
     {
-        for (TObjectIterator<UPrimitiveComponent> It; It; ++It)
-        {
-            if (It->GetUUID() == LastPick.Id)
-            {
-                OutlinerPanel.SelectActor(It->GetOwner());
-                return;
-            }
-        }
+        if (It->GetUUID() == LastPick.Id)
+            return It->GetOwner();
     }
-    OutlinerPanel.SelectActor(nullptr);
+    return nullptr;
 }
 
 // Config에서 받은 비율을 Core 최소 범위로 clamp해 Adapter 상태에 저장한다.

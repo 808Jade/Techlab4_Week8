@@ -26,6 +26,7 @@
 #include "Render/ColorWorkflow.h"
 #include "Editor/Outliner/OutlinerPanel.h"
 #include "Editor/HitoriEd/EditorFileUtils.h"
+#include "Serialization/JsonArchive.h"
 #include "Editor/HitoriEd/EditorResourcePaths.h"
 #include "UObject/UObjectIterator.h"
 #include "Component/SpotLightComponent.h"
@@ -168,20 +169,9 @@ bool UEditorEngine::Init()
 
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(GetActiveWorld());
-	OutlinerPanel->SetSelectionCallback(
-		[this](USceneComponent* Root)
-		{
-			Gizmo->SetTarget(Root, true);
-			DetailsPanel->SetTarget(Root ? Root->GetOwner() : nullptr);
-
-			UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Root);
-			if (!Primitive && Root && Root->GetOwner())
-			{
-				for (UActorComponent* C : Root->GetOwner()->GetComponents())
-					if ((Primitive = Cast<UPrimitiveComponent>(C))) break;
-			}
-			Outline->SetTarget(Primitive);
-		});
+	// 아웃라이너·뷰포트 피킹이 같은 선택 목록을 쓰고, 바뀌면 한곳에서 기즈모·디테일·외곽선을 맞춘다.
+	OutlinerPanel->SetSelection(&Selection);
+	Selection.SetChangedCallback([this]() { SyncSelectionToEditors(); });
 	DetailsPanel->SetSelectionCallback(
 		[this](UActorComponent* Component)
 		{
@@ -207,7 +197,11 @@ bool UEditorEngine::Init()
 	OutlinerPanel->SetDeleteActorCallback(
 		[this](AActor* Actor)
 		{
-			DeleteActor(Actor);
+			// 선택된 액터에서 Delete를 고르면 선택 전체를 지운다.
+			if (Selection.IsSelected(Actor))
+				DeleteSelectedActors();
+			else
+				DeleteActor(Actor);
 		}
 	);
 	DetailsPanel->SetDeleteComponentCallback(
@@ -267,6 +261,20 @@ bool UEditorEngine::Init()
 	Stop.Execute = [this]() { RequestEndPlayMap(); };
 
 	EditorUI->GetToolbar()->SetCommands({ Play, Pause, Resume, StepFrame, Stop });
+
+	// 복사·붙여넣기는 에디터 월드에서만 한다. PIE 월드에 만든 액터는 세션이 끝나면 사라지기 때문이다.
+	Copy = { "Copy", "Copy Selected Actors", nullptr, White, { EKeyCode::C, true } };
+	Copy.CanExecute = [this]() { return !IsPlaying() && !Selection.IsEmpty(); };
+	Copy.Execute = [this]() { CopySelectedActors(); };
+
+	Paste = { "Paste", "Paste Copied Actors", nullptr, White, { EKeyCode::V, true } };
+	Paste.CanExecute = [this]() { return !IsPlaying() && !CopiedActorData.IsEmpty(); };
+	Paste.Execute = [this]() { PasteCopiedActors(); };
+
+	// 복사 후 바로 붙여넣는다. 복사해 둔 내용도 이번 선택으로 바뀐다.
+	Duplicate = { "Duplicate", "Duplicate Selected Actors", nullptr, White, { EKeyCode::D, true } };
+	Duplicate.CanExecute = [this]() { return !IsPlaying() && !Selection.IsEmpty(); };
+	Duplicate.Execute = [this]() { CopySelectedActors(); PasteCopiedActors(); };
 	EditorUI->GetToolbar()->SetPlayModeBinding(
 		[this]() { return PlayMode; },
 		[this](EPlayModeType Mode) { PlayMode = Mode; },
@@ -330,7 +338,9 @@ void UEditorEngine::BeginFrame(const float DeltaTime)
 	EditorControlsPanel->FEditorControlsPanel::DeltaTime = DeltaTime;
 
 	if (!ImGui::GetIO().WantTextInput && FInputSystem::IsKeyPressed(EKeyCode::Delete))
-		DeleteActor(OutlinerPanel->GetSelectedActor());
+		DeleteSelectedActors();
+
+	EditorCommandUI::ProcessShortcuts({ &Copy, &Paste, &Duplicate });
 }
 
 // 패널의 Layout·Preset 요청과 입력을 Adapter에 반영한다.
@@ -762,9 +772,9 @@ void UEditorEngine::RenderOverlayPass(const int32 ViewIndex, UWorld& ViewWorld, 
 	};
 
 	// 스텐실 기반이라 선택 대상의 가시성이 꺼져 있어도 외곽선만 그린다.
-	if (bShowEditorOverlay && IsInViewWorld(Outline->GetTarget()))
+	if (bShowEditorOverlay)
 	{
-		OutlineRenderer->OnRender(*Outline, ViewProjection, PassInfo.ViewportSetting);
+		OutlineRenderer->OnRender(*Outline, ViewProjection, PassInfo.ViewportSetting, &ViewWorld);
 	}
 
 	if (bShowEditorOverlay && IsInViewWorld(Gizmo->GetTarget()))
@@ -907,15 +917,138 @@ void UEditorEngine::UpdateGizmoAndPicking()
 			bMouseDown,
 			MultipleViewportsAdapter.GetEngineCameraLocation(ViewIndex),
 			MultipleViewportsAdapter.IsOrthographic(ViewIndex));
+		UpdateSelectionGizmoDrag();
 	}
 
 	const bool bGizmoBlocksPick = bGizmoInView && (Gizmo->IsUsing() || Gizmo->GetHoveredAxis() >= 0);
 	if (FInputSystem::IsMousePressed(EMouseButton::Left) && !bGizmoBlocksPick)
 	{
 		MultipleViewportsAdapter.PickActiveView(LocalMousePosition, *ViewWorld);
-		MultipleViewportsAdapter.ApplyLastPickToOutliner(*OutlinerPanel);
+		AActor* PickedActor = MultipleViewportsAdapter.FindLastPickedActor();
+
+		// Shift·Ctrl 클릭은 기존 선택에 더하거나 빼고, 빈 곳을 눌러도 선택을 유지한다.
+		// 다른 월드(PIE 일시정지 View 등)의 액터와는 섞지 않는다.
+		const bool bAdditive = FInputSystem::IsKeyDown(EKeyCode::Shift) || FInputSystem::IsKeyDown(EKeyCode::Control);
+		const AActor* Primary = Selection.GetPrimary();
+		const bool bSameWorld = !Primary || (PickedActor && PickedActor->GetWorld() == Primary->GetWorld());
+		if (bAdditive && bSameWorld)
+		{
+			Selection.Toggle(PickedActor);
+		}
+		else if (!bAdditive)
+		{
+			OutlinerPanel->SelectActor(PickedActor);
+		}
 	}
 
+}
+
+// 선택 전체에 외곽선을, Primary 액터에 기즈모와 디테일을 맞춘다.
+void UEditorEngine::SyncSelectionToEditors()
+{
+	AActor* Primary = Selection.GetPrimary();
+	Gizmo->SetTarget(Primary ? Primary->GetRootComponent() : nullptr, true);
+	DetailsPanel->SetTarget(Primary);
+
+	// 액터마다 루트가 프리미티브면 루트를, 아니면 첫 프리미티브를 외곽선 대상으로 쓴다.
+	TArray<UPrimitiveComponent*> OutlineTargets;
+	for (AActor* Actor : Selection.GetActors())
+	{
+		UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+		for (UActorComponent* Component : Actor->GetComponents())
+		{
+			if (Primitive)
+				break;
+			Primitive = Cast<UPrimitiveComponent>(Component);
+		}
+		if (Primitive)
+			OutlineTargets.Add(Primitive);
+	}
+	Outline->SetTargets(OutlineTargets);
+}
+
+void UEditorEngine::UpdateSelectionGizmoDrag()
+{
+	AActor* Primary = Selection.GetPrimary();
+	USceneComponent* PrimaryRoot = Primary ? Primary->GetRootComponent() : nullptr;
+
+	// Details에서 하위 컴포넌트를 골라 기즈모로 움직일 때는 그 컴포넌트만 움직인다.
+	const bool bGroupDrag = Gizmo->IsUsing() && PrimaryRoot && Gizmo->GetTarget() == PrimaryRoot
+		&& Selection.GetActors().Num() > 1;
+	if (!bGroupDrag)
+	{
+		GizmoDragStarts.Reset();
+		return;
+	}
+
+	// 드래그를 시작한 프레임에 Primary와 나머지 액터의 시작 Transform을 기록한다.
+	if (GizmoDragStarts.IsEmpty())
+	{
+		GizmoDragStarts.Add({ PrimaryRoot, PrimaryRoot->GetWorldLocation(),
+			PrimaryRoot->GetWorldRotation().Quaternion(), PrimaryRoot->GetWorldScale3D() });
+		for (AActor* Actor : Selection.GetActors())
+		{
+			USceneComponent* Root = Actor->GetRootComponent();
+			if (Root && Root != PrimaryRoot)
+				GizmoDragStarts.Add({ Root, Root->GetWorldLocation(), Root->GetWorldRotation().Quaternion(), Root->GetWorldScale3D() });
+		}
+	}
+
+	const FGizmoDragStart& Pivot = GizmoDragStarts[0];
+	const EGizmoMode Mode = Gizmo->GetMode();
+	if (Mode == EGizmoMode::Location)
+	{
+		const FVector Delta = PrimaryRoot->GetWorldLocation() - Pivot.Location;
+		for (int32 Index = 1; Index < GizmoDragStarts.Num(); ++Index)
+			GizmoDragStarts[Index].Component->SetWorldLocation(GizmoDragStarts[Index].Location + Delta, false);
+	}
+	else if (Mode == EGizmoMode::Rotation)
+	{
+		// Primary를 중심으로 같은 각도만큼 공전·자전한다.
+		const FQuat DeltaRotation = PrimaryRoot->GetWorldRotation().Quaternion() * Pivot.Rotation.Inverse();
+		for (int32 Index = 1; Index < GizmoDragStarts.Num(); ++Index)
+		{
+			const FGizmoDragStart& Start = GizmoDragStarts[Index];
+			Start.Component->SetWorldLocation(Pivot.Location + DeltaRotation.RotateVector(Start.Location - Pivot.Location), false);
+			Start.Component->SetWorldRotation((DeltaRotation * Start.Rotation).ToFRotator(), false);
+		}
+	}
+	else
+	{
+		// 크기는 Primary가 바뀐 배율을 축마다 각 액터에 곱한다. 0으로 나누지 않도록 시작 값이 0인 축은 그대로 둔다.
+		const FVector Current = PrimaryRoot->GetWorldScale3D();
+		const auto Ratio = [](const float Now, const float Start) { return std::fabs(Start) > 1.0e-6f ? Now / Start : 1.0f; };
+		const FVector ScaleRatio(Ratio(Current.X, Pivot.Scale.X), Ratio(Current.Y, Pivot.Scale.Y), Ratio(Current.Z, Pivot.Scale.Z));
+		for (int32 Index = 1; Index < GizmoDragStarts.Num(); ++Index)
+		{
+			const FVector& StartScale = GizmoDragStarts[Index].Scale;
+			GizmoDragStarts[Index].Component->SetWorldScale3D(
+				FVector(StartScale.X * ScaleRatio.X, StartScale.Y * ScaleRatio.Y, StartScale.Z * ScaleRatio.Z));
+		}
+	}
+}
+
+void UEditorEngine::CopySelectedActors()
+{
+	if (!FJsonArchive::SaveActorsToBytes(Selection.GetActors(), CopiedActorData))
+	{
+		HTR_LOG(Warning, "Copy: nothing to copy");
+		return;
+	}
+	HTR_LOG(Info, "Copied {} actor(s)", Selection.GetActors().Num());
+}
+
+// 복사한 위치에 그대로 만들고, 새 액터들을 선택해 바로 기즈모로 옮길 수 있게 한다.
+void UEditorEngine::PasteCopiedActors()
+{
+	TArray<AActor*> PastedActors;
+	if (!FJsonArchive::SpawnActorsFromBytes(EditorWorld, CopiedActorData, PastedActors) || PastedActors.IsEmpty())
+	{
+		HTR_LOG(Warning, "Paste: failed to create actors");
+		return;
+	}
+	Selection.SelectActors(PastedActors);
+	HTR_LOG(Info, "Pasted {} actor(s)", PastedActors.Num());
 }
 
 // View 행렬로 Scene·Grid·Gizmo·텍스트·Outline을 렌더한다.
@@ -1085,10 +1218,23 @@ void UEditorEngine::DeleteActor(AActor* Actor)
 	if (IsPlaying() && !bIsPaused)
 		return;
 
-	OutlinerPanel->SelectActor(nullptr);
-	DetailsPanel->SelectComponent(nullptr);
+	// 선택에서 먼저 빼야 기즈모·디테일·외곽선이 지워질 액터를 가리키지 않는다.
+	Selection.Remove(Actor);
+	GizmoDragStarts.Reset();
 
 	Actor->Destroy();
+}
+
+void UEditorEngine::DeleteSelectedActors()
+{
+	if (IsPlaying() && !bIsPaused)
+		return;
+
+	// 지우는 동안 선택 목록이 바뀌므로 복사본으로 순회한다.
+	const TArray<AActor*> ActorsToDelete = Selection.GetActors();
+	Selection.Clear();
+	for (AActor* Actor : ActorsToDelete)
+		DeleteActor(Actor);
 }
 
 void UEditorEngine::DeleteComponent(UActorComponent* Component)
@@ -1100,6 +1246,8 @@ void UEditorEngine::DeleteComponent(UActorComponent* Component)
 	DetailsPanel->SelectComponent(nullptr);
 	Outline->SetTarget(nullptr);
 	Component->GetOwner()->DestroyComponent(Component);
+	// 지운 컴포넌트를 뺀 상태로 기즈모·디테일·외곽선을 선택에 다시 맞춘다.
+	SyncSelectionToEditors();
 }
 
 void UEditorEngine::StartPlayInEditorSession()
@@ -1315,10 +1463,11 @@ FTexture2D* UEditorEngine::GetFxaaTargetForView(const int32 ViewIndex) const
 // 씬 변경으로 무효화된 에디터의 선택 참조를 모두 해제한다.
 void UEditorEngine::ResetSceneSelection()
 {
+	Selection.Clear();
+	GizmoDragStarts.Reset();
 	Gizmo->SetTarget(nullptr, false);
 	Outline->SetTarget(nullptr);
 	DetailsPanel->SetTarget(nullptr);
-	OutlinerPanel->SelectActor(nullptr);
 }
 
 // 새 씬 생성이 성공하면 에디터 선택 상태를 초기화한다.

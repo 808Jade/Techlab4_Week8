@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorUI/EditorPanel.h"
+#include "Editor/HitoriEd/EditorSelection.h"
 
 #include <functional>
 
@@ -20,8 +21,11 @@ public:
     FOutlinerPanel() = default;
     ~FOutlinerPanel() = default;
 
+    // 아웃라이너에서 선택을 바꿀 때마다 Primary 액터의 루트를 넘긴다. 공유 선택을 쓰면 필요 없다.
     void SetSelectionCallback(SelectionCallback InCallback) { Callback = InCallback; }
     void SetDeleteActorCallback(DeleteActorCallback InCallback) { DeleteCallback = InCallback;}
+    // 에디터 전체가 공유하는 선택 목록을 연결한다. 연결하지 않으면 패널 자체 목록을 쓴다.
+    void SetSelection(FEditorSelection* InSelection) { Selection = InSelection ? InSelection : &OwnedSelection; }
 
 public:
     bool Init() override;
@@ -33,14 +37,21 @@ public:
 
     void DrawActors(ULevel* Level);
     void DrawActorNode(AActor* Actor);
+    // 기존 선택을 지우고 Actor만 선택한다. nullptr이면 선택을 비운다.
     void SelectActor(AActor* Actor);
+    // Actor를 선택 목록에 넣거나 뺀다 (Shift·Ctrl 클릭).
+    void ToggleActorSelection(AActor* Actor);
 
+    // Primary 액터 (마지막으로 선택한 액터)
     AActor* GetSelectedActor() const;
 
 
 private:
+    void NotifySelectionCallback() const;
+
     UWorld* World = nullptr;
-    UObject* SelectedObject = nullptr;
+    FEditorSelection OwnedSelection;
+    FEditorSelection* Selection = &OwnedSelection;
 
     SelectionCallback Callback;
     DeleteActorCallback DeleteCallback;
