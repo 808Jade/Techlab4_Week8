@@ -97,7 +97,6 @@ FLightSceneProxy* USpotLightComponent::CreateSceneProxy()
 void USpotLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
 {
 	if (!LineBatcher) return;
-	if (!IsDebugLine) return;
 
 	const FVector Apex = GetWorldLocation();
 	const FVector Forward = GetLightDirection();

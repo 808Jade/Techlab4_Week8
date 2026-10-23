@@ -717,12 +717,15 @@ void UEditorEngine::RenderOverlayPass(const int32 ViewIndex, UWorld& ViewWorld, 
 				DirLight->DrawDebug(LineBatcher.get());
 			}
 		}
-		for (TObjectIterator<USpotLightComponent> SpotLight; SpotLight; ++SpotLight)
+		// Point·Spot 라이트의 범위는 선택된 액터의 라이트만 그린다 (Spot의 IsDebugLine이 켜져 있으면 항상).
+		// 반복자는 파생 클래스도 돌기 때문에 Spot도 여기서 함께 그린다.
+		for (TObjectIterator<UPointLightComponent> LocalLight; LocalLight; ++LocalLight)
 		{
-			if (SpotLight && SpotLight->GetOwner() && SpotLight->GetOwner()->GetWorld() == &ViewWorld)
-			{
-				SpotLight->DrawDebug(LineBatcher.get());
-			}
+			AActor* Owner = LocalLight->GetOwner();
+			if (!Owner || Owner->GetWorld() != &ViewWorld)
+				continue;
+			if (Selection.IsSelected(Owner) || LocalLight->ShouldAlwaysDrawDebug())
+				LocalLight->DrawDebug(LineBatcher.get());
 		}
 		LineBatcher->OnRender(ViewProjection);
 	}

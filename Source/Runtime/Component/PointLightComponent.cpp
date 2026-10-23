@@ -2,6 +2,8 @@
 #include "PointLightComponent.h"
 #include "Engine/LightSceneProxy.h"
 #include "Render/LightInfo.h"
+#include "Render/LineBatcher.h"
+#include "Math/EngineMath.h"
 
 void UPointLightComponent::PostEditChangeProperty(const FProperty& Property)
 {
@@ -77,4 +79,37 @@ void UPointLightComponent::GetShadowInfo(TArray<FShadowInfo>& OutShadowInfo) con
 FLightSceneProxy* UPointLightComponent::CreateSceneProxy()
 {
 	return new FPointLightSceneProxy(this);
+}
+
+void UPointLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
+{
+	if (!LineBatcher) return;
+
+	constexpr int32 CircleSegmentCount = 32;
+	const FVector Center = GetWorldLocation();
+
+	// 디버그 라인은 오버레이라 화면에 보이는 sRGB 값을 감마 변환 없이 그대로 쓴다
+	const FLinearColor LineColor = LightColor.ReinterpretAsLinear();
+	const FVector4 Color(LineColor.R, LineColor.G, LineColor.B, 1.0f);
+
+	// XY·XZ·YZ 평면의 원 세 개로 감쇠 반경 구를 나타낸다.
+	const FVector PlaneAxes[3][2] =
+	{
+		{ FVector(1.0f, 0.0f, 0.0f), FVector(0.0f, 1.0f, 0.0f) },
+		{ FVector(1.0f, 0.0f, 0.0f), FVector(0.0f, 0.0f, 1.0f) },
+		{ FVector(0.0f, 1.0f, 0.0f), FVector(0.0f, 0.0f, 1.0f) },
+	};
+	for (const auto& Axes : PlaneAxes)
+	{
+		FVector PreviousPoint = Center + Axes[0] * AttenuationRadius;
+		for (int32 i = 1; i <= CircleSegmentCount; ++i)
+		{
+			const float Angle = (2.0f * PI * i) / CircleSegmentCount;
+			const FVector Point = Center
+				+ Axes[0] * (std::cos(Angle) * AttenuationRadius)
+				+ Axes[1] * (std::sin(Angle) * AttenuationRadius);
+			LineBatcher->AddLine(PreviousPoint, Point, Color);
+			PreviousPoint = Point;
+		}
+	}
 }

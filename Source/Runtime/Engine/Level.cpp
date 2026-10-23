@@ -5,6 +5,7 @@
 // delete Actor가 소멸자를 호출하려면 AActor의 완전한 정의가 필요하다.
 // 전방 선언만으로는 C4150(소멸자 미호출)이 되어 액터가 GUObjectArray에 남는다.
 #include "GameFramework/Actor.h"
+#include "UObject/UObjectGlobals.h"
 #include "Component/ExponentialHeightFogComponent.h"
 #include "Component/LightComponentBase.h"
 
@@ -88,6 +89,12 @@ void ULevel::SaveActorRecord(FStructuredArchive::FRecord ActorRecord, AActor* Ac
 {
 	FString ClassName = Actor->GetClass()->Name;
 	ActorRecord << SA_VALUE("Class", ClassName);
+
+	// 아웃라이너에서 바꾼 이름을 남긴다. 이름이 없던 예전 씬도 읽히도록 선택 필드로 쓴다.
+	FString ActorName = Actor->GetName();
+	if (TOptional<FStructuredArchive::FSlot> NameSlot = ActorRecord.TryEnterField("Name", true))
+		NameSlot.GetValue() << ActorName;
+
 	Actor->Serialize(ActorRecord);
 }
 
@@ -108,6 +115,13 @@ AActor* ULevel::SpawnActorFromRecord(FStructuredArchive::FRecord ActorRecord)
 	AActor* Actor = OwningWorld->SpawnActor(Class);
 	if (!Actor)
 		return nullptr;
+
+	// 저장된 이름을 되살린다. 같은 레벨에 이미 있으면(붙여넣기 등) 새로 지은 이름을 그대로 둔다.
+	FString SavedName;
+	if (TOptional<FStructuredArchive::FSlot> NameSlot = ActorRecord.TryEnterField("Name", false))
+		NameSlot.GetValue() << SavedName;
+	if (!SavedName.empty() && !StaticFindObjectFast(nullptr, this, FName(SavedName)))
+		Actor->SetName(FName(SavedName));
 
 	Actor->Serialize(ActorRecord);
 

@@ -46,8 +46,17 @@ public:
     AActor* GetSelectedActor() const;
 
 
+    // 액터 이름 바꾸기를 시작한다 (더블 클릭, F2, 우클릭 Rename).
+    void BeginRename(AActor* Actor);
+
 private:
     void NotifySelectionCallback() const;
+    // 이름을 바꾸는 줄의 입력칸. 확정·취소되면 바꾸기 상태를 끝낸다.
+    void DrawRenameInput(AActor* Actor);
+
+    AActor* RenamingActor = nullptr;
+    char RenameBuffer[256] = {};
+    bool bFocusRenameInput = false;
 
     UWorld* World = nullptr;
     FEditorSelection OwnedSelection;

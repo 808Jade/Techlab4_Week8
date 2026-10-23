@@ -127,6 +127,7 @@
                             }
                         }
                     ],
+                    "Name": "ASpotLightActor_2",
                     "Properties": {}
                 },
                 {
@@ -186,6 +187,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_11",
                     "Properties": {}
                 },
                 {
@@ -245,6 +247,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_12",
                     "Properties": {}
                 },
                 {
@@ -304,6 +307,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_13",
                     "Properties": {}
                 },
                 {
@@ -363,6 +367,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_14",
                     "Properties": {}
                 },
                 {
@@ -422,6 +427,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_15",
                     "Properties": {}
                 },
                 {
@@ -545,6 +551,7 @@
                             }
                         }
                     ],
+                    "Name": "APointLightActor_2",
                     "Properties": {}
                 },
                 {
@@ -604,6 +611,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_16",
                     "Properties": {}
                 },
                 {
@@ -723,6 +731,7 @@
                             }
                         }
                     ],
+                    "Name": "AAmbientLightActor_1",
                     "Properties": {}
                 },
                 {
@@ -782,6 +791,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_17",
                     "Properties": {}
                 },
                 {
@@ -841,6 +851,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_18",
                     "Properties": {}
                 },
                 {
@@ -964,6 +975,7 @@
                             }
                         }
                     ],
+                    "Name": "APointLightActor_3",
                     "Properties": {}
                 },
                 {
@@ -1023,6 +1035,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_19",
                     "Properties": {}
                 },
                 {
@@ -1082,6 +1095,7 @@
                             }
                         }
                     ],
+                    "Name": "SphereMesh",
                     "Properties": {}
                 },
                 {
@@ -1208,6 +1222,7 @@
                             }
                         }
                     ],
+                    "Name": "ASpotLightActor_3",
                     "Properties": {}
                 },
                 {
@@ -1267,6 +1282,7 @@
                             }
                         }
                     ],
+                    "Name": "AStaticMeshActor_21",
                     "Properties": {}
                 },
                 {
@@ -1390,6 +1406,7 @@
                             }
                         }
                     ],
+                    "Name": "ADirectionalLightActor_1",
                     "Properties": {}
                 }
             ],

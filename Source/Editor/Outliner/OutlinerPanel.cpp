@@ -30,6 +30,13 @@ void FOutlinerPanel::OnRender()
     // Level의 Actor 목록 Tree 출력
     ImGui::Begin("Outliner");
 
+    // F2: 아웃라이너에 포커스가 있을 때 선택된(Primary) 액터 이름 바꾸기
+    if (!RenamingActor && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+        && ImGui::IsKeyPressed(ImGuiKey_F2, false))
+    {
+        BeginRename(Selection->GetPrimary());
+    }
+
     DrawActors(Level);
 
     ImGui::End();
@@ -100,6 +107,15 @@ void FOutlinerPanel::DrawActorNode(AActor* Actor)
     if (Selection->IsSelected(Actor))
         Flags |= ImGuiTreeNodeFlags_Selected;
 
+    // 이름을 바꾸는 중이면 같은 줄에 입력칸을 띄운다
+    if (RenamingActor == Actor)
+    {
+        ImGui::TreeNodeEx(Actor, Flags, "%s", "");
+        ImGui::SameLine();
+        DrawRenameInput(Actor);
+        return;
+    }
+
     ImGui::TreeNodeEx(Actor, Flags, "%s", ActorName.c_str());
 
     // UI에서 Actor 클릭. Shift·Ctrl을 누르고 있으면 기존 선택에 더하거나 뺀다.
@@ -112,8 +128,19 @@ void FOutlinerPanel::DrawActorNode(AActor* Actor)
             SelectActor(Actor);
     }
 
+    // 더블 클릭으로 이름 바꾸기
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+    {
+        BeginRename(Actor);
+    }
+
     if (ImGui::BeginPopupContextItem())
     {
+        if (ImGui::MenuItem("Rename", "F2"))
+        {
+            BeginRename(Actor);
+        }
+
         // 선택된 액터에서 열면 선택 전체를, 아니면 그 액터만 지운다 (삭제 콜백이 판단한다).
         if (ImGui::MenuItem("Delete"))
         {
@@ -123,6 +150,57 @@ void FOutlinerPanel::DrawActorNode(AActor* Actor)
         ImGui::EndPopup();
     }
 
+}
+
+void FOutlinerPanel::BeginRename(AActor* Actor)
+{
+    if (!Actor)
+        return;
+
+    RenamingActor = Actor;
+    strncpy_s(RenameBuffer, sizeof(RenameBuffer), Actor->GetName().c_str(), _TRUNCATE);
+    bFocusRenameInput = true;
+}
+
+// Enter 또는 다른 곳 클릭으로 확정하고, Esc로 취소한다.
+// 비어 있거나 같은 레벨에 이미 있는 이름이면 바꾸지 않는다.
+void FOutlinerPanel::DrawRenameInput(AActor* Actor)
+{
+    if (bFocusRenameInput)
+    {
+        ImGui::SetKeyboardFocusHere();
+        bFocusRenameInput = false;
+    }
+
+    ImGui::SetNextItemWidth(-1.0f);
+    const bool bConfirmed = ImGui::InputText("##RenameActor", RenameBuffer, sizeof(RenameBuffer),
+        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    const bool bCancelled = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape);
+    if (!bCancelled && !bConfirmed && !ImGui::IsItemDeactivated())
+        return;
+
+    const FString NewName = RenameBuffer;
+    if (!bCancelled && !NewName.empty() && NewName != Actor->GetName())
+    {
+        bool bNameTaken = false;
+        if (const ULevel* Level = Actor->GetLevel())
+        {
+            for (const AActor* Other : Level->GetActors())
+            {
+                if (Other && Other != Actor && Other->GetName() == NewName)
+                {
+                    bNameTaken = true;
+                    break;
+                }
+            }
+        }
+
+        if (bNameTaken)
+            HTR_LOG(Warning, "An actor named '{}' already exists in this level.", NewName);
+        else
+            Actor->SetName(FName(NewName));
+    }
+    RenamingActor = nullptr;
 }
 
 // 선택 Object 변경

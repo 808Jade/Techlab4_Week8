@@ -26,7 +26,10 @@ public:
 
 	virtual void PostEditChangeProperty(const FProperty& Property) override;
 
-	void DrawDebug(FLineBatcher* LineBatcher) const;
+	// 바깥·안쪽 원뿔을 그린다.
+	virtual void DrawDebug(FLineBatcher* LineBatcher) const override;
+	// IsDebugLine이 켜져 있으면 선택하지 않아도 원뿔을 그린다.
+	virtual bool ShouldAlwaysDrawDebug() const override { return IsDebugLine; }
 
 protected:
 	float InnerConeAngle = 0.0f;

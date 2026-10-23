@@ -108,8 +108,15 @@ FName MakeUniqueObjectName(UObject* Outer, const UClass* Class, FName BaseName)
 		BaseName = FName(Class->Name);
 	}
 
+	// 같은 Outer에 같은 이름이 있으면 StaticAllocateObject가 그 객체를 제자리에서 교체하므로 쓰이지 않은 번호까지 넘긴다.
+	// 이름을 바꾼 액터나 씬에서 불러온 이름이 카운터가 만들 이름과 겹칠 수 있다.
 	const FString Base = BaseName.ToString();
-	return FName(Base + "_" + std::to_string(Class->ClassUnique++));
+	FName Candidate;
+	do
+	{
+		Candidate = FName(Base + "_" + std::to_string(Class->ClassUnique++));
+	} while (StaticFindObjectFast(nullptr, Outer, Candidate) != nullptr);
+	return Candidate;
 }
 
 UObject* StaticDuplicateObject(UObject const* SourceObject, UObject* DestOuter, const FName DestName, EObjectFlags FlagMask, UClass* DestClass)
